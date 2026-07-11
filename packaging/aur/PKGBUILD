@@ -4,7 +4,6 @@
 #  - replace _repo_url with the real public repository URL, and fix _srcdir
 #    if the repository name differs from $pkgname
 #  - tag v$pkgver upstream, then run `updpkgsums` to fill sha256sums
-#  - add a LICENSE file upstream and set license=() to match
 #  - regenerate .SRCINFO: makepkg --printsrcinfo > .SRCINFO
 pkgname=bincue-studio
 pkgver=1.0.0
@@ -13,7 +12,7 @@ pkgdesc="Audio CD authoring studio — assemble tracks, export BIN/CUE, burn, an
 arch=('x86_64')
 _repo_url="https://github.com/YOURUSER/bincue-studio"
 url="$_repo_url"
-license=('MIT')
+license=('GPL-3.0-or-later')
 depends=('qt6-base' 'qt6-svg' 'hostkit' 'taglib' 'ffmpeg')
 makedepends=('cmake')
 optdepends=('cdrdao: burn the exported BIN/CUE to disc')
