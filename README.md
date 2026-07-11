@@ -4,13 +4,6 @@ An **Audio CD (CD-DA) project suite** for Linux: assemble tracks into a
 Red Book-correct disc image, design a printable circular label, and burn to a
 local or remote CD writer — all from one Qt 6 / C++ application.
 
-It grew out of a few real needs: burning a disc on a computer whose CD writer
-lives on *another* machine; taking the fuss out of managing the silent gaps
-between tracks so the timing comes out right without hand-editing cue sheets; and
-quickly turning an album's own cover art into a printable label. So remote burning
-over SSH, automatic gap normalisation, and the built-in label editor are all
-first-class features, not afterthoughts.
-
 Two executables are built by one CMake project:
 
 - **bincue-studio** (`src/`) — the project tool. Builds a single-file CD-DA image
@@ -23,6 +16,40 @@ Two executables are built by one CMake project:
 
 ![BinCue Studio main window](gallery/main_window.png)
 
+## Why another CD program?
+
+Plenty of software burns audio CDs. BinCue Studio exists for a handful of
+things that, as far as we can tell, none of them do:
+
+- **Burning to a drive on another machine.** Every burner GUI assumes the
+  writer is attached to the computer you're sitting at. Here the burner can be
+  a **remote host reached over SSH**: the image is mastered locally, uploaded,
+  and written there with `cdrdao`, with the live burn log streamed back. The
+  only prior art is CLI plumbing (cdrtools' long-dead `rscsi`, or hand-piping
+  images over ssh) — no burning application has offered it as a feature.
+- **Gap reconciliation, not just gap setting.** Most burners let you choose the
+  pause appended between tracks; none of them account for silence *already
+  baked into* the files. Rips and downloads often carry a second or two of
+  trailing silence per track, and appending a fixed pause on top double-counts
+  it — the usual advice is "trim it in an audio editor first". In BinCue Studio
+  you declare each track's baked-in trailing silence, and export trims or pads
+  automatically so every audible gap comes out exactly as asked — no
+  hand-editing audio or cue sheets.
+- **The disc image as a first-class artifact.** Export produces a Red Book
+  CD-DA image — **BIN + CUE + cdrdao TOC**, with CD-Text — that you can keep,
+  verify, and burn with any tool, not just this one. On Linux that has always
+  meant chaining CLI tools (shntool, cuetools, cdrdao); the GUI burners only
+  burn.
+- **A label editor that works from the music itself.** Disc-label tools exist,
+  but as separate, mostly dormant apps that start from a blank page. cdlabel is
+  integrated: it pulls the cover art embedded in your tracks and builds the
+  label from it — cover mosaics, feature-cover rings, curved track listings —
+  with a live preview and reusable presets.
+
+And all of it native on Linux (Qt 6 / C++), where these pieces — image
+mastering, gap control, remote burning, label design — have never lived in one
+application.
+
 ## Features
 
 - Drag-and-drop track ordering with per-disc and per-track metadata.
@@ -30,7 +57,7 @@ Two executables are built by one CMake project:
   source files via TagLib.
 - Red Book-aware timing: correct lead-in pre-gap, normalised inter-track gaps,
   and a live capacity meter that turns red when you exceed the disc.
-- One-click **BIN + CUE** export with embedded CD-Text.
+- One-click **BIN + CUE + cdrdao TOC** export with embedded CD-Text.
 - Burn to a local drive, or to a burner on **another machine over SSH** — the
   image is built locally, uploaded, and written with `cdrdao`.
 - A full circular **label editor** with live preview, reusable JSON presets,
@@ -59,7 +86,7 @@ against the chosen disc size, so you always see exactly how much fits.
 
 ## Burning
 
-Export produces a `BIN + CUE` pair you can burn with any tool, or use the built-in
+Export produces a `BIN + CUE + TOC` set you can burn with any tool, or use the built-in
 **Burn to Disc…** dialog. The burner can be **local** or a **remote host reached
 over SSH** — handy when your writer lives on another machine. The image is built
 locally, uploaded if remote, and written with `cdrdao` (the exact command is
