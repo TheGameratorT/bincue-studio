@@ -10,6 +10,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -265,9 +266,32 @@ void MainWindow::buildUi()
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(8);
 
-    // Disc info: two compact form columns instead of one tall form.
-    auto *discGroup = new QGroupBox(tr("Disc"));
-    auto *discGrid = new QGridLayout(discGroup);
+    // Disc info: two compact form columns instead of one tall form. Wrapped in
+    // a collapsible section — a framed card with a flat header button carrying a
+    // disclosure arrow (▾/▸); pressing it folds the body away to give the track
+    // table more room.
+    auto *discSection = new QFrame;
+    discSection->setFrameShape(QFrame::StyledPanel);
+    auto *discOuter = new QVBoxLayout(discSection);
+    discOuter->setContentsMargins(0, 0, 0, 0);
+    discOuter->setSpacing(0);
+
+    auto *discToggle = new QToolButton;
+    discToggle->setText(tr("Disc"));
+    discToggle->setCheckable(true);
+    discToggle->setAutoRaise(true);
+    discToggle->setArrowType(Qt::DownArrow);
+    discToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    discToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    discToggle->setCursor(Qt::PointingHandCursor);
+    discToggle->setStyleSheet(QStringLiteral(
+        "QToolButton { border: none; font-weight: bold; padding: 6px 8px; "
+        "text-align: left; }"));
+    discOuter->addWidget(discToggle);
+
+    auto *discBody = new QWidget;
+    discOuter->addWidget(discBody);
+    auto *discGrid = new QGridLayout(discBody);
     auto *leftForm = new QFormLayout;
     auto *rightForm = new QFormLayout;
     leftForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -383,7 +407,22 @@ void MainWindow::buildUi()
     rightForm->addRow(tr("Pre-gap (lead-in):"), pregapRow);
     rightForm->addRow(tr("Gap between tracks:"), gapRow);
 
-    root->addWidget(discGroup);
+    root->addWidget(discSection);
+
+    // Restore the collapsed/expanded state from the previous session and keep
+    // it in sync. Toggling the header button folds the body and flips the arrow
+    // between ▾ (expanded) and ▸ (collapsed).
+    const bool discExpanded =
+        m_settings.value(QStringLiteral("discInfoExpanded"), true).toBool();
+    discToggle->setChecked(discExpanded);
+    discBody->setVisible(discExpanded);
+    discToggle->setArrowType(discExpanded ? Qt::DownArrow : Qt::RightArrow);
+    connect(discToggle, &QToolButton::toggled, this,
+            [this, discToggle, discBody](bool on) {
+                discBody->setVisible(on);
+                discToggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+                m_settings.setValue(QStringLiteral("discInfoExpanded"), on);
+            });
 
     // Mark the project dirty on any user edit to the disc info. textEdited
     // (unlike textChanged) only fires for user input, not programmatic
