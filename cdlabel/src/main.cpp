@@ -1,17 +1,23 @@
 // cdlabel — CD label editor for BinCue Studio.
 //
-// Standalone mode (default when run on its own): open the editor with a left
-// content panel to type the title, track listing and drop in cover images:
-//     cdlabel [--preset preset.json]
+// The editor always shows a left content panel: the album title (with a rich
+// override), the track listing and, per track, whether its name and cover
+// appear plus a rename. Its own project format (title + those per-track choices
+// + the design) saves/opens through that panel.
 //
-// Embedded mode: BinCue Studio launches the editor with a project, whose title,
-// tracks and cover art fill the label (no content panel — the project is the
-// source of truth):
-//     cdlabel --project project.bincue.json [--preset preset.json]
+// Standalone: open empty, or open a saved cdlabel project directly.
+//     cdlabel [preset/project args below]
+//     cdlabel --art-project album.cdlabel.json      # open a saved project
 //
-// Headless mode: render a preset straight to an image (no window; used by
-// scripts and by BinCue Studio's own preview tooling):
-//     cdlabel --project project.bincue.json --preset preset.json \
+// Embedded: BinCue Studio launches the editor with the current project content
+// (album title + tracks). If a cdlabel project is saved beside the BinCue
+// project, it is loaded and its per-track choices are synced to the current
+// tracks (added/removed tracks reconciled by name) — but the file on disk only
+// changes when the user saves.
+//     cdlabel --project project.bincue.json [--art-project album.cdlabel.json]
+//
+// Headless: render straight to an image (no window; scripts / preview tooling).
+//     cdlabel [--project … | --art-project …] [--preset preset.json] \
 //             --render out.png [--size 1400] [--matte]
 
 #include <QApplication>
@@ -27,20 +33,18 @@
 #include <cmath>
 #include <cstdio>
 
-#include "covers.h"
 #include "labelconfig.h"
 #include "labeldialog.h"
+#include "labelproject.h"
 #include "render.h"
 
 namespace {
 
-struct Project {
-    QString title;
-    QStringList trackTitles;
-    QStringList coverSources;
-};
-
-bool loadProject(const QString &path, Project &out, QString &error)
+// Read a BinCue Studio authoring project (album title + tracks) as label
+// content: one LabelTrack per track, every name and cover shown by default.
+// Which of them actually appear is chosen later in cdlabel's panel, so this no
+// longer reads the retired "include_cover" flag.
+bool loadBincueContent(const QString &path, LabelProject &out, QString &error)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -57,17 +61,17 @@ bool loadProject(const QString &path, Project &out, QString &error)
     out.title = obj.value(QStringLiteral("album_title")).toString();
     if (out.title.trimmed().isEmpty())
         out.title = QStringLiteral("Audio CD");
-    for (const QJsonValue &v :
-         obj.value(QStringLiteral("tracks")).toArray()) {
+    out.tracks.clear();
+    for (const QJsonValue &v : obj.value(QStringLiteral("tracks")).toArray()) {
         const QJsonObject track = v.toObject();
-        out.trackTitles.append(
-            track.value(QStringLiteral("title")).toString());
-        // Only tracks left ticked in the project's "Art" column contribute
-        // covers; every track still shows in the listing text.
-        if (track.value(QStringLiteral("include_cover")).toBool(true))
-            out.coverSources.append(
-                track.value(QStringLiteral("source_path")).toString());
+        LabelTrack t;
+        t.name = track.value(QStringLiteral("title")).toString();
+        t.displayName = t.name;
+        t.sourcePath = track.value(QStringLiteral("source_path")).toString();
+        out.tracks.append(t);
     }
+    extractProjectCovers(out.tracks);
+    out.design = LabelConfig();
     return true;
 }
 
@@ -123,9 +127,16 @@ int main(int argc, char *argv[])
         QStringLiteral("BinCue Studio project JSON (album title, tracks, "
                        "cover sources)."),
         QStringLiteral("path"));
+    const QCommandLineOption artOpt(
+        QStringLiteral("art-project"),
+        QStringLiteral("cdlabel project JSON (title, per-track choices and "
+                       "design); loaded if present, and the default Save "
+                       "target."),
+        QStringLiteral("path"));
     const QCommandLineOption presetOpt(
         QStringLiteral("preset"),
-        QStringLiteral("Label preset JSON to load."), QStringLiteral("path"));
+        QStringLiteral("Label preset JSON to load (design only)."),
+        QStringLiteral("path"));
     const QCommandLineOption renderOpt(
         QStringLiteral("render"),
         QStringLiteral("Render to this image file and exit (headless)."),
@@ -143,49 +154,85 @@ int main(int argc, char *argv[])
         QStringLiteral("name"),
         QStringLiteral("Default file name offered when saving the label."),
         QStringLiteral("name"));
-    parser.addOptions(
-        {projectOpt, presetOpt, renderOpt, sizeOpt, matteOpt, nameOpt});
+    parser.addOptions({projectOpt, artOpt, presetOpt, renderOpt, sizeOpt,
+                       matteOpt, nameOpt});
+    // A lone file argument opens a saved cdlabel project (desktop file-manager
+    // association / drag-onto-icon), equivalent to --art-project with no
+    // --project.
+    parser.addPositionalArgument(
+        QStringLiteral("project"),
+        QStringLiteral("A cdlabel project (.cdlabel.json) to open."),
+        QStringLiteral("[project]"));
     parser.process(app);
 
-    Project project;
     QString error;
-    // No project on the command line means the editor was launched on its own:
-    // run standalone, with a content panel to enter the title/tracks/covers.
-    const bool standalone = !parser.isSet(projectOpt);
+
+    // Where the cdlabel project lives (load source + Save target). From
+    // --art-project, else a lone positional file.
+    QString artPath = parser.value(artOpt);
+    if (artPath.isEmpty() && !parser.positionalArguments().isEmpty())
+        artPath = parser.positionalArguments().constFirst();
+
+    // Load the saved cdlabel project, if the file exists.
+    LabelProject saved;
+    bool haveSaved = false;
+    if (!artPath.isEmpty() && QFile::exists(artPath)) {
+        if (loadLabelProject(artPath, saved, error))
+            haveSaved = true;
+        else
+            std::fprintf(stderr, "cdlabel: could not open project %s: %s\n",
+                         qPrintable(artPath), qPrintable(error));
+    }
+
+    // Assemble the working project: BinCue content (with the saved choices
+    // synced onto it) when launched embedded, else the saved project on its
+    // own, else an empty standalone start.
+    LabelProject project;
     if (parser.isSet(projectOpt)) {
-        if (!loadProject(parser.value(projectOpt), project, error)) {
+        LabelProject content;
+        if (!loadBincueContent(parser.value(projectOpt), content, error)) {
             std::fprintf(stderr, "cdlabel: could not load project: %s\n",
                          qPrintable(error));
             return 2;
         }
+        project.title = content.title;
+        if (haveSaved) {
+            project.tracks = syncTracks(saved.tracks, content.tracks);
+            project.design = saved.design;
+        } else {
+            project.tracks = content.tracks;
+        }
+    } else if (haveSaved) {
+        project = saved;   // open the saved project standalone
     } else {
         project.title = QStringLiteral("Audio CD");
     }
 
-    LabelConfig cfg;
-    const bool hasPreset = parser.isSet(presetOpt);
-    if (hasPreset && !loadPreset(parser.value(presetOpt), cfg, error)) {
-        std::fprintf(stderr, "cdlabel: could not load preset: %s\n",
-                     qPrintable(error));
-        return 2;
+    // A preset on the command line overrides the design (design only).
+    if (parser.isSet(presetOpt)) {
+        LabelConfig presetCfg;
+        if (!loadPreset(parser.value(presetOpt), presetCfg, error)) {
+            std::fprintf(stderr, "cdlabel: could not load preset: %s\n",
+                         qPrintable(error));
+            return 2;
+        }
+        project.design = presetCfg;
     }
-
-    const QList<QImage> covers = extractCovers(project.coverSources);
 
     if (parser.isSet(renderOpt)) {
         RenderInput input;
         input.title = project.title;
-        input.trackTitles = project.trackTitles;
-        input.covers = covers;
+        input.trackTitles = shownTrackTitles(project.tracks);
+        input.covers = shownCovers(project.tracks);
+        const LabelConfig &cfg = project.design;
         if (cfg.bgImageEnabled && !cfg.bgImagePath.isEmpty())
             input.bgImage = QImage(cfg.bgImagePath);
         const int side =
             parser.isSet(sizeOpt)
                 ? qMax(64, parser.value(sizeOpt).toInt())
                 : int(std::lround(cfg.discMm / 25.4 * SAVE_DPI));
-        std::fprintf(stderr,
-                     "cdlabel: %d distinct covers from %d sources\n",
-                     int(covers.size()), int(project.coverSources.size()));
+        std::fprintf(stderr, "cdlabel: %d distinct covers\n",
+                     int(input.covers.size()));
         QImage img = renderLabelImage(input, cfg, side);
         if (parser.isSet(matteOpt)) {
             QImage canvas(side, side, QImage::Format_ARGB32);
@@ -210,12 +257,9 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    LabelDialog dialog(project.title, project.trackTitles, covers,
-                       parser.isSet(nameOpt) ? parser.value(nameOpt)
-                                             : project.title,
-                       standalone);
-    if (hasPreset)
-        dialog.applyConfig(cfg);
+    const QString defaultName = parser.isSet(nameOpt) ? parser.value(nameOpt)
+                                                      : project.title;
+    LabelDialog dialog(project, defaultName, artPath, parser.isSet(projectOpt));
     dialog.exec();
     return 0;
 }

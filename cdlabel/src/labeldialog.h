@@ -13,6 +13,7 @@
 #include <QStringList>
 
 #include "labelconfig.h"
+#include "labelproject.h"
 #include "render.h"
 
 class ColorButton;
@@ -26,7 +27,8 @@ class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
-class QPlainTextEdit;
+class QTableWidget;
+class QTableWidgetItem;
 class QSlider;
 class QTextEdit;
 class QWidget;
@@ -34,16 +36,20 @@ class QWidget;
 class LabelDialog : public QDialog {
     Q_OBJECT
 public:
-    LabelDialog(const QString &title, const QStringList &trackTitles,
-                const QList<QImage> &covers,
+    // `project` supplies the content (title + tracks) and design; `projectPath`
+    // is where Save Project writes (empty = prompt on first save). `projectMode`
+    // means launched from BinCue Studio (the content is bound to that project,
+    // so opening a different cdlabel project is not offered).
+    LabelDialog(const LabelProject &project,
                 const QString &defaultName = QStringLiteral("cd_label"),
-                bool standalone = false, QWidget *parent = nullptr);
+                const QString &projectPath = QString(),
+                bool projectMode = false, QWidget *parent = nullptr);
 
     void applyConfig(const LabelConfig &cfg);   // e.g. a preset given on the CLI
 
 private:
     // -- construction -----------------------------------------------------
-    QWidget *buildContentPanel();   // standalone: edit title/tracks/covers
+    QWidget *buildContentPanel();   // title override + per-track list
     QWidget *buildSidebar();
     QGroupBox *buildPresetGroup();
     QGroupBox *buildDiscGroup();
@@ -97,30 +103,39 @@ private:
     void updateBgImageLabel();
     void saveLabel();
 
-    // -- standalone content editing ------------------------------------------
-    void pushContentToPreview();   // title/tracks/covers -> preview + repaint
-    void titleContentEdited();
-    void tracksContentEdited();
-    void addCovers();
-    void removeSelectedCover();
-    void rebuildCoverThumbs();
+    // -- cdlabel project (content + design) ----------------------------------
+    void openProject();
+    void saveProject();               // Save to m_projectPath, else prompt
+    void saveProjectAs();             // always prompt
+    bool writeProjectTo(const QString &path);
+    void adoptProject(const LabelProject &project, const QString &path);
+
+    // -- content editing (title override + per-track list) -------------------
+    void pushContentToPreview();      // derive titles/covers -> preview + repaint
+    void rebuildDerivedContent();     // recompute m_trackTitles/m_covers from m_tracks
+    void refreshCoverBookkeeping();   // covers changed: order list + sidebar rows
+    void rebuildTrackTable();
+    void trackItemChanged(QTableWidgetItem *item);
+    void addTrack();
+    void removeSelectedTracks();
+    void chooseTrackImage(int row);   // assign a cover image to a manual track
 
     // -- data ----------------------------------------------------------------
-    QString m_titleText;
-    QStringList m_trackTitles;
-    QList<QImage> m_covers;
+    QString m_titleText;              // album title (fallback when no override)
+    QList<LabelTrack> m_tracks;       // the content: source of truth
+    QStringList m_trackTitles;        // derived: shown display names
+    QList<QImage> m_covers;           // derived: distinct shown covers
     QString m_defaultName;
-    bool m_standalone = false;   // editable content panel vs. project-driven
+    QString m_projectPath;            // cdlabel project Save target ("" = none)
+    bool m_projectMode = false;       // launched embedded from BinCue Studio
     LabelConfig m_cfg;
     QImage m_bgImage;
     bool m_loading = false;   // guards handlers during bulk control updates
 
     PreviewWidget *m_preview = nullptr;
 
-    // Content panel (standalone only)
-    QLineEdit *m_contentTitle = nullptr;
-    QPlainTextEdit *m_contentTracks = nullptr;
-    QListWidget *m_contentCovers = nullptr;
+    // Content panel
+    QTableWidget *m_trackTable = nullptr;
 
     // Preset / disc
     QComboBox *m_presetCombo = nullptr;

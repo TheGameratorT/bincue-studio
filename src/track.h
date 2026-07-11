@@ -16,9 +16,6 @@ struct Track {
     // How much trailing silence the source file already has, in seconds. The
     // exporter trims or fills this so the actual gap matches the disc gap.
     double bakedInGap = redbook::DEFAULT_BAKED_GAP_SECONDS;
-    // Whether this track's embedded cover art is offered to the label
-    // artwork. Off keeps the audio but leaves its cover out of the mosaic.
-    bool includeCover = true;
 
     qint64 frames() const;
 

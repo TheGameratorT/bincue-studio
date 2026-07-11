@@ -17,6 +17,11 @@
 // The distinct covers for the given audio files, in first-seen order.
 QList<QImage> extractCovers(const QStringList &paths);
 
+// The single cover for one audio file (first embedded picture, else a sidecar
+// image beside it), as ARGB32; a null image when the file carries no art. Used
+// to keep each track associated with its own cover for the per-track panel.
+QImage extractCover(const QString &path);
+
 // Blend toward greyscale, keeping `keep` (0..1) of the original colour.
 QImage desaturate(const QImage &img, double keep);
 

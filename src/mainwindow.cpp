@@ -53,7 +53,6 @@ enum Column {
     ColIsrc,
     ColDuration,
     ColBaked,
-    ColArt,
     ColumnCount
 };
 
@@ -404,15 +403,13 @@ void MainWindow::buildUi()
     m_table = new QTableWidget(0, ColumnCount);
     m_table->setHorizontalHeaderLabels({tr("Title"), tr("Performer"),
                                         tr("Songwriter"), tr("ISRC"),
-                                        tr("Duration"), tr("Baked-in Gap"),
-                                        tr("Art")});
+                                        tr("Duration"), tr("Baked-in Gap")});
     QHeaderView *header = m_table->horizontalHeader();
     header->setSectionResizeMode(ColTitle, QHeaderView::Stretch);
     header->setSectionResizeMode(ColPerformer, QHeaderView::Stretch);
     header->setSectionResizeMode(ColSongwriter, QHeaderView::Stretch);
     header->setSectionResizeMode(ColIsrc, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(ColDuration, QHeaderView::ResizeToContents);
-    header->setSectionResizeMode(ColArt, QHeaderView::ResizeToContents);
     m_table->setAlternatingRowColors(true);
     m_table->setShowGrid(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -545,9 +542,6 @@ void MainWindow::onItemChanged(QTableWidgetItem *item)
     case ColIsrc:
         track.isrc = item->text();
         break;
-    case ColArt:
-        track.includeCover = (item->checkState() == Qt::Checked);
-        break;
     default:
         return;
     }
@@ -574,23 +568,11 @@ void MainWindow::refreshTable()
         durItem->setFlags(durItem->flags() & ~Qt::ItemIsEditable);
         durItem->setTextAlignment(Qt::AlignCenter);
 
-        auto *artItem = new QTableWidgetItem;
-        artItem->setFlags((artItem->flags() | Qt::ItemIsUserCheckable)
-                          & ~Qt::ItemIsEditable);
-        artItem->setCheckState(track.includeCover ? Qt::Checked
-                                                  : Qt::Unchecked);
-        artItem->setTextAlignment(Qt::AlignCenter);
-        artItem->setToolTip(
-            tr("Include this track's cover art in the label artwork. "
-               "Unchecking keeps the track but leaves its cover out of the "
-               "mosaic."));
-
         m_table->setItem(row, ColTitle, titleItem);
         m_table->setItem(row, ColPerformer, perfItem);
         m_table->setItem(row, ColSongwriter, songwriterItem);
         m_table->setItem(row, ColIsrc, isrcItem);
         m_table->setItem(row, ColDuration, durItem);
-        m_table->setItem(row, ColArt, artItem);
 
         auto *bakedSpin = new QDoubleSpinBox;
         bakedSpin->setRange(0.0, 30.0);
@@ -1023,9 +1005,9 @@ void MainWindow::createLabel()
     }
 
     // Hand the project over as JSON (the same shape as a saved project); the
-    // editor pulls the titles and cover art from it. Tracks unticked in the
-    // "Art" column carry include_cover=false and contribute no covers, but
-    // still show in the listing text.
+    // editor pulls the titles and cover art from it. Which track names and
+    // covers actually appear on the label is chosen in cdlabel's own panel, so
+    // this project just carries the raw content.
     auto *projectFile = new QTemporaryFile(
         QDir::temp().filePath(QStringLiteral("bincue_label_XXXXXX.json")),
         this);
@@ -1043,15 +1025,30 @@ void MainWindow::createLabel()
     if (defaultName.isEmpty())
         defaultName = QStringLiteral("cd_label");
 
+    // When this project is saved, point the editor at the label project that
+    // lives beside it (same path, ".cdlabel.json" instead of ".bincue.json").
+    // The editor loads it if present and syncs its per-track choices to the
+    // current tracks, but only rewrites it when the user saves in the editor.
+    QStringList args{QStringLiteral("--project"), projectFile->fileName(),
+                     QStringLiteral("--name"), defaultName};
+    if (!m_projectPath.isEmpty()) {
+        QString artPath = m_projectPath;
+        if (artPath.endsWith(QStringLiteral(".bincue.json"),
+                             Qt::CaseInsensitive))
+            artPath.chop(QStringLiteral(".bincue.json").size());
+        else if (artPath.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive))
+            artPath.chop(QStringLiteral(".json").size());
+        artPath += QStringLiteral(".cdlabel.json");
+        args << QStringLiteral("--art-project") << artPath;
+    }
+
     // A parented QProcess whose signals land on the GUI thread: the editor is
     // reaped and the temp file dropped when it exits, with no watcher thread
     // to crash the app when the editor window closes.
     auto *process = new QProcess(this);
     projectFile->setParent(process);  // auto-removed when the process object dies
     process->setProgram(binary);
-    process->setArguments({QStringLiteral("--project"),
-                           projectFile->fileName(), QStringLiteral("--name"),
-                           defaultName});
+    process->setArguments(args);
     connect(process, &QProcess::finished, process, &QObject::deleteLater);
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError error) {

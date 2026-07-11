@@ -102,6 +102,19 @@ QList<QImage> extractCovers(const QStringList &paths)
     return covers;
 }
 
+QImage extractCover(const QString &path)
+{
+    QList<QByteArray> datas = embeddedPictureBytes(path);
+    if (datas.isEmpty())
+        datas = sidecarPictureBytes(path);
+    for (const QByteArray &data : datas) {
+        QImage img;
+        if (img.loadFromData(data) && !img.isNull())
+            return img.convertToFormat(QImage::Format_ARGB32);
+    }
+    return QImage();
+}
+
 QImage desaturate(const QImage &img, double keep)
 {
     const QImage src = img.convertToFormat(QImage::Format_ARGB32);

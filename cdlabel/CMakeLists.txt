@@ -17,6 +17,7 @@ endif()
 add_executable(cdlabel
     src/main.cpp
     src/labelconfig.cpp
+    src/labelproject.cpp
     src/covers.cpp
     src/render.cpp
     src/rendertext.cpp

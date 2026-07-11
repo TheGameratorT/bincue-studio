@@ -91,8 +91,12 @@ void LabelDialog::syncControlsFromConfig()
     m_titleOutlineWidth->setValue(int(std::lround(c.titleOutlineWidth * 100)));
     m_titleOffsetX->setValue(int(std::lround(c.titleOffsetX * 100)));
     m_titleOffsetY->setValue(int(std::lround(c.titleOffsetY * 100)));
-    if (serializeTitleDoc() != c.titleOverride)
-        loadTitleDoc(c.titleOverride);
+    // The title box shows the override, or the album title when there is no
+    // override (they read the same and print the same).
+    const QString titleMarkup =
+        c.titleOverride.isEmpty() ? m_titleText : c.titleOverride;
+    if (serializeTitleDoc() != titleMarkup)
+        loadTitleDoc(titleMarkup);
 
     setComboData(m_trackLayout, c.trackLayout);
     m_trackBand->setValue(int(std::lround(c.trackBand * 100)));
@@ -439,7 +443,10 @@ void LabelDialog::titleTextChanged()
 {
     if (m_loading)
         return;
-    m_cfg.titleOverride = serializeTitleDoc();
+    // Leaving the box matching the album title means "no override" — stored
+    // empty so it keeps tracking the project title and preset matching works.
+    const QString doc = serializeTitleDoc();
+    m_cfg.titleOverride = (doc == m_titleText) ? QString() : doc;
     touch();
 }
 
@@ -547,6 +554,89 @@ void LabelDialog::exportPreset()
                              tr("Saved to:\n%1").arg(path));
 }
 
+// ---- cdlabel project (content + design) --------------------------------------
+
+void LabelDialog::openProject()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open cdlabel Project"), m_projectPath,
+        tr("cdlabel project (*.cdlabel.json *.json);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    LabelProject project;
+    QString error;
+    if (!loadLabelProject(path, project, error)) {
+        QMessageBox::critical(this, tr("Open failed"), error);
+        return;
+    }
+    adoptProject(project, path);
+}
+
+// Replace the whole working state (content + design) with a loaded project and
+// refresh every view. Used when opening a project file from within the editor.
+void LabelDialog::adoptProject(const LabelProject &project, const QString &path)
+{
+    m_titleText = project.title;
+    m_tracks = project.tracks;
+    m_projectPath = path;
+    m_cfg = project.design;
+    rebuildTrackTable();
+    m_trackTitles = shownTrackTitles(m_tracks);
+    m_covers = shownCovers(m_tracks);
+    loadBgFromConfig();
+    syncControlsFromConfig();   // config -> controls + preview, order list, etc.
+    pushContentToPreview();     // content -> preview
+}
+
+void LabelDialog::saveProject()
+{
+    if (m_projectPath.isEmpty()) {
+        saveProjectAs();
+        return;
+    }
+    writeProjectTo(m_projectPath);
+}
+
+void LabelDialog::saveProjectAs()
+{
+    QString suggested = m_projectPath;
+    if (suggested.isEmpty()) {
+        QString safe = m_defaultName;
+        safe.remove(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")));
+        safe = safe.trimmed();
+        if (safe.isEmpty())
+            safe = QStringLiteral("cd_label");
+        suggested = safe + QStringLiteral(".cdlabel.json");
+    }
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Save cdlabel Project"), suggested,
+        tr("cdlabel project (*.cdlabel.json)"));
+    if (path.isEmpty())
+        return;
+    if (!path.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive))
+        path += QStringLiteral(".cdlabel.json");
+    if (writeProjectTo(path))
+        m_projectPath = path;
+}
+
+bool LabelDialog::writeProjectTo(const QString &path)
+{
+    LabelProject project;
+    project.title = m_titleText;
+    project.tracks = m_tracks;
+    project.design = m_cfg;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::critical(this, tr("Save failed"), file.errorString());
+        return false;
+    }
+    file.write(QJsonDocument(labelProjectToJson(project))
+                   .toJson(QJsonDocument::Indented));
+    setWindowTitle(tr("CD Label — %1").arg(QFileInfo(path).fileName()));
+    return true;
+}
+
 // ---- Background image ------------------------------------------------------------------
 
 void LabelDialog::chooseBgImage()
@@ -608,7 +698,7 @@ void LabelDialog::saveLabel()
         safe = QStringLiteral("cd_label");
     QString selected;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save CD Label"), safe + QStringLiteral(".png"),
+        this, tr("Export CD Label"), safe + QStringLiteral(".png"),
         tr("PNG image (*.png);;JPEG image (*.jpg)"), &selected);
     if (path.isEmpty())
         return;

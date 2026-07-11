@@ -15,7 +15,6 @@ QJsonObject Track::toJson() const
     o[QStringLiteral("isrc")] = isrc;
     o[QStringLiteral("duration_seconds")] = durationSeconds;
     o[QStringLiteral("baked_in_gap")] = bakedInGap;
-    o[QStringLiteral("include_cover")] = includeCover;
     return o;
 }
 
@@ -30,7 +29,6 @@ Track Track::fromJson(const QJsonObject &o)
     t.durationSeconds = o.value(QStringLiteral("duration_seconds")).toDouble();
     t.bakedInGap =
         o.value(QStringLiteral("baked_in_gap")).toDouble(t.bakedInGap);
-    t.includeCover = o.value(QStringLiteral("include_cover")).toBool(true);
     return t;
 }
 

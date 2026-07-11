@@ -18,38 +18,45 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QIcon>
 #include <QImageReader>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
+#include <QModelIndex>
 #include <QPixmap>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStyle>
+#include <QTableWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <functional>
 
-LabelDialog::LabelDialog(const QString &title, const QStringList &trackTitles,
-                         const QList<QImage> &covers,
-                         const QString &defaultName, bool standalone,
-                         QWidget *parent)
-    : QDialog(parent), m_titleText(title), m_trackTitles(trackTitles),
-      m_covers(covers), m_defaultName(defaultName), m_standalone(standalone)
+LabelDialog::LabelDialog(const LabelProject &project,
+                         const QString &defaultName, const QString &projectPath,
+                         bool projectMode, QWidget *parent)
+    : QDialog(parent), m_titleText(project.title), m_tracks(project.tracks),
+      m_defaultName(defaultName), m_projectPath(projectPath),
+      m_projectMode(projectMode), m_cfg(project.design)
 {
     setWindowTitle(tr("CD Label"));
-    resize(standalone ? 1180 : 960, 720);
+    resize(1180, 720);
+
+    m_trackTitles = shownTrackTitles(m_tracks);
+    m_covers = shownCovers(m_tracks);
 
     RenderInput input;
-    input.title = title;
-    input.trackTitles = trackTitles;
-    input.covers = covers;
+    input.title = m_titleText;
+    input.trackTitles = m_trackTitles;
+    input.covers = m_covers;
     m_preview = new PreviewWidget(input, m_cfg, this);
 
     auto *root = new QHBoxLayout(this);
@@ -59,14 +66,15 @@ LabelDialog::LabelDialog(const QString &title, const QStringList &trackTitles,
     QMargins rootMargins = root->contentsMargins();
     rootMargins.setRight(0);
     root->setContentsMargins(rootMargins);
-    // Standalone launches (no BinCue Studio project) get a left panel to type
-    // the title, track listing and drop in cover images; when embedded the
-    // content is fixed by the project passed on the command line.
-    if (standalone)
-        root->addWidget(buildContentPanel());
+    // The left content panel is always shown: it holds the title override and
+    // the per-track name/cover/rename choices, pre-filled from the project.
+    root->addWidget(buildContentPanel());
     root->addWidget(m_preview, 1);
     root->addWidget(buildSidebar());
 
+    // A background image named in the design (e.g. a saved project) is loaded
+    // before the controls sync so its rows enable correctly.
+    loadBgFromConfig();
     syncControlsFromConfig();
 }
 
@@ -148,67 +156,117 @@ QWidget *wrapRow(std::initializer_list<QWidget *> widgets)
 
 } // namespace
 
-// ---- Content panel (standalone) ---------------------------------------------
+// ---- Content panel ----------------------------------------------------------
 //
-// Only shown when the editor is launched on its own (no BinCue Studio project).
-// It supplies the same three inputs a project would — the album title, the
-// track listing and the cover art — but lets the user type/drop them here.
+// Always shown. Supplies the label's content: the album title (with a rich,
+// per-line-sized override) and a per-track list where each track's name and
+// cover can be toggled and the track renamed. Two buttons open/save the whole
+// cdlabel project (this content plus the design) as a file.
 
 QWidget *LabelDialog::buildContentPanel()
 {
     auto *panel = new QWidget;
-    panel->setFixedWidth(300);
+    panel->setFixedWidth(320);
     auto *col = new QVBoxLayout(panel);
     col->setContentsMargins(6, 6, 6, 6);
 
-    // Title
+    // Project open / save. In project mode the content is bound to the BinCue
+    // Studio project, so opening a different cdlabel project is not offered.
+    auto *projectRow = new QHBoxLayout;
+    if (!m_projectMode) {
+        auto *openBtn = new QPushButton(tr("Open…"));
+        openBtn->setToolTip(tr("Open a cdlabel project (.cdlabel.json)"));
+        connect(openBtn, &QPushButton::clicked, this, &LabelDialog::openProject);
+        projectRow->addWidget(openBtn);
+    }
+    auto *saveProjectBtn = new QPushButton(tr("Save Project…"));
+    saveProjectBtn->setToolTip(
+        tr("Save the title, per-track choices and design as a cdlabel project"));
+    connect(saveProjectBtn, &QPushButton::clicked, this,
+            &LabelDialog::saveProject);
+    projectRow->addWidget(saveProjectBtn);
+    col->addLayout(projectRow);
+
+    // Title — a rich override, pre-filled with the album title.
     auto *titleBox = new QGroupBox(tr("Title"));
     auto *titleLay = new QVBoxLayout(titleBox);
-    m_contentTitle = new QLineEdit(m_titleText);
-    m_contentTitle->setPlaceholderText(tr("Album title"));
-    connect(m_contentTitle, &QLineEdit::textChanged, this,
-            &LabelDialog::titleContentEdited);
-    titleLay->addWidget(m_contentTitle);
+    m_titleOverride = new QTextEdit;
+    m_titleOverride->setFixedHeight(78);
+    m_titleOverride->setAcceptRichText(false);
+    m_titleOverride->setPlaceholderText(
+        tr("Album title — type your own, one line each; select a line and use "
+           "“Line size” to scale it."));
+    m_titleOverride->setToolTip(
+        tr("The title printed on the label, pre-filled with the album title. "
+           "Add line breaks for a multi-line title; click into a line (or "
+           "select several) and change the “Line size” multiplier to size it."));
+    connect(m_titleOverride, &QTextEdit::textChanged, this,
+            &LabelDialog::titleTextChanged);
+    connect(m_titleOverride, &QTextEdit::cursorPositionChanged, this,
+            &LabelDialog::syncTitleLineSize);
+    connect(m_titleOverride, &QTextEdit::selectionChanged, this,
+            &LabelDialog::syncTitleLineSize);
+    titleLay->addWidget(m_titleOverride);
+
+    auto *lineSizeRow = new QHBoxLayout;
+    lineSizeRow->addWidget(new QLabel(tr("Line size:")));
+    m_titleLineSize = new QDoubleSpinBox;
+    m_titleLineSize->setRange(0.3, 3.0);
+    m_titleLineSize->setSingleStep(0.1);
+    m_titleLineSize->setValue(1.0);
+    m_titleLineSize->setSuffix(QStringLiteral("×"));
+    m_titleLineSize->setToolTip(tr(
+        "Font size of the selected title line(s), relative to the base size."));
+    connect(m_titleLineSize, &QDoubleSpinBox::valueChanged, this,
+            &LabelDialog::applyTitleLineSize);
+    lineSizeRow->addWidget(m_titleLineSize);
+    lineSizeRow->addStretch();
+    titleLay->addLayout(lineSizeRow);
     col->addWidget(titleBox);
 
-    // Tracks — one per line
+    // Tracks — per-track name/cover toggles and rename.
     auto *tracksBox = new QGroupBox(tr("Tracks"));
     auto *tracksLay = new QVBoxLayout(tracksBox);
-    m_contentTracks = new QPlainTextEdit(m_trackTitles.join(QLatin1Char('\n')));
-    m_contentTracks->setPlaceholderText(tr("One track title per line"));
-    m_contentTracks->setTabChangesFocus(true);
-    connect(m_contentTracks, &QPlainTextEdit::textChanged, this,
-            &LabelDialog::tracksContentEdited);
-    tracksLay->addWidget(m_contentTracks);
+    m_trackTable = new QTableWidget(0, 4);
+    m_trackTable->setHorizontalHeaderLabels(
+        {tr("Name"), tr("Cover"), tr("Track"), QString()});
+    m_trackTable->setToolTip(
+        tr("Per track: tick whether its name appears in the listing and "
+           "whether its cover joins the artwork, and rename it. Double-click "
+           "the last column to set an image for a track added by hand."));
+    m_trackTable->verticalHeader()->setVisible(false);
+    m_trackTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_trackTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                  | QAbstractItemView::SelectedClicked
+                                  | QAbstractItemView::EditKeyPressed);
+    QHeaderView *th = m_trackTable->horizontalHeader();
+    th->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    th->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    th->setSectionResizeMode(2, QHeaderView::Stretch);
+    th->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    connect(m_trackTable, &QTableWidget::itemChanged, this,
+            &LabelDialog::trackItemChanged);
+    connect(m_trackTable, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int column) {
+                if (column == 3)
+                    chooseTrackImage(row);
+            });
+    tracksLay->addWidget(m_trackTable, 1);
+
+    auto *trackBtns = new QHBoxLayout;
+    auto *addBtn = new QPushButton(tr("Add"));
+    addBtn->setToolTip(tr("Add a track row"));
+    connect(addBtn, &QPushButton::clicked, this, &LabelDialog::addTrack);
+    auto *removeBtn = new QPushButton(tr("Remove"));
+    removeBtn->setToolTip(tr("Remove the selected track(s)"));
+    connect(removeBtn, &QPushButton::clicked, this,
+            &LabelDialog::removeSelectedTracks);
+    trackBtns->addWidget(addBtn);
+    trackBtns->addWidget(removeBtn);
+    tracksLay->addLayout(trackBtns);
     col->addWidget(tracksBox, 1);
 
-    // Covers — thumbnail list with add/remove
-    auto *coversBox = new QGroupBox(tr("Covers"));
-    auto *coversLay = new QVBoxLayout(coversBox);
-    m_contentCovers = new QListWidget;
-    m_contentCovers->setViewMode(QListView::IconMode);
-    m_contentCovers->setIconSize(QSize(56, 56));
-    m_contentCovers->setResizeMode(QListView::Adjust);
-    m_contentCovers->setMovement(QListView::Static);
-    m_contentCovers->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_contentCovers->setUniformItemSizes(true);
-    m_contentCovers->setMinimumHeight(120);
-    coversLay->addWidget(m_contentCovers);
-
-    auto *coverBtns = new QHBoxLayout;
-    auto *addBtn = new QPushButton(tr("Add…"));
-    addBtn->setToolTip(tr("Add cover images"));
-    connect(addBtn, &QPushButton::clicked, this, &LabelDialog::addCovers);
-    auto *removeBtn = new QPushButton(tr("Remove"));
-    removeBtn->setToolTip(tr("Remove the selected cover(s)"));
-    connect(removeBtn, &QPushButton::clicked, this,
-            &LabelDialog::removeSelectedCover);
-    coverBtns->addWidget(addBtn);
-    coverBtns->addWidget(removeBtn);
-    coversLay->addLayout(coverBtns);
-    col->addWidget(coversBox, 1);
-
-    rebuildCoverThumbs();
+    rebuildTrackTable();
     return panel;
 }
 
@@ -217,96 +275,159 @@ void LabelDialog::pushContentToPreview()
     m_preview->setContent(m_titleText, m_trackTitles, m_covers);
 }
 
-void LabelDialog::titleContentEdited()
+void LabelDialog::rebuildDerivedContent()
 {
-    m_titleText = m_contentTitle->text();
+    m_trackTitles = shownTrackTitles(m_tracks);
+    m_covers = shownCovers(m_tracks);
     pushContentToPreview();
 }
 
-void LabelDialog::tracksContentEdited()
+// The set of shown covers changed: the manual cover order (indices into
+// m_covers) and the sidebar's cover rows must be rebuilt to match.
+void LabelDialog::refreshCoverBookkeeping()
 {
-    // One track per line; blank lines are dropped so a trailing newline while
-    // typing doesn't add an empty row.
-    m_trackTitles.clear();
-    const QStringList lines =
-        m_contentTracks->toPlainText().split(QLatin1Char('\n'));
-    for (const QString &line : lines) {
-        const QString trimmed = line.trimmed();
-        if (!trimmed.isEmpty())
-            m_trackTitles.append(trimmed);
+    const bool wasEmpty = m_covers.isEmpty();
+    m_cfg.coverOrder.clear();
+    m_covers = shownCovers(m_tracks);
+    const bool any = !m_covers.isEmpty();
+    if (!any)
+        m_cfg.coversEnabled = false;
+    else if (wasEmpty && !m_cfg.coversEnabled)
+        m_cfg.coversEnabled = true;   // first cover shown: turn the layer on
+    m_loading = true;
+    if (m_coversCheck) {
+        m_coversCheck->setEnabled(any);
+        m_coversCheck->setChecked(m_cfg.coversEnabled && any);
     }
-    pushContentToPreview();
+    m_loading = false;
+    rebuildOrderList();
+    updateCoverRows();
+    m_preview->setConfig(m_cfg);   // coversEnabled / coverOrder may have changed
+    rebuildDerivedContent();
 }
 
-void LabelDialog::addCovers()
+void LabelDialog::rebuildTrackTable()
 {
+    m_loading = true;
+    m_trackTable->setRowCount(int(m_tracks.size()));
+    for (int row = 0; row < m_tracks.size(); ++row) {
+        const LabelTrack &t = m_tracks[row];
+
+        auto *nameCheck = new QTableWidgetItem;
+        nameCheck->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+        nameCheck->setCheckState(t.showName ? Qt::Checked : Qt::Unchecked);
+        nameCheck->setTextAlignment(Qt::AlignCenter);
+        m_trackTable->setItem(row, 0, nameCheck);
+
+        auto *coverCheck = new QTableWidgetItem;
+        coverCheck->setTextAlignment(Qt::AlignCenter);
+        if (t.cover.isNull()) {
+            // No art to offer: a disabled, unticked box.
+            coverCheck->setFlags(Qt::ItemIsUserCheckable);
+            coverCheck->setCheckState(Qt::Unchecked);
+            coverCheck->setToolTip(tr("This track has no cover art."));
+        } else {
+            coverCheck->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+            coverCheck->setCheckState(t.showCover ? Qt::Checked : Qt::Unchecked);
+        }
+        m_trackTable->setItem(row, 1, coverCheck);
+
+        auto *nameItem = new QTableWidgetItem(t.displayName);
+        nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable
+                           | Qt::ItemIsEditable);
+        m_trackTable->setItem(row, 2, nameItem);
+
+        auto *thumb = new QTableWidgetItem;
+        thumb->setFlags(Qt::ItemIsEnabled);
+        thumb->setToolTip(tr("Double-click to set a cover image."));
+        if (!t.cover.isNull())
+            thumb->setIcon(QIcon(QPixmap::fromImage(t.cover.scaled(
+                28, 28, Qt::KeepAspectRatioByExpanding,
+                Qt::SmoothTransformation))));
+        m_trackTable->setItem(row, 3, thumb);
+    }
+    m_trackTable->resizeRowsToContents();
+    m_loading = false;
+}
+
+void LabelDialog::trackItemChanged(QTableWidgetItem *item)
+{
+    if (m_loading)
+        return;
+    const int row = item->row();
+    if (row < 0 || row >= m_tracks.size())
+        return;
+    LabelTrack &t = m_tracks[row];
+    switch (item->column()) {
+    case 0:
+        t.showName = (item->checkState() == Qt::Checked);
+        rebuildDerivedContent();
+        break;
+    case 1:
+        t.showCover = (item->checkState() == Qt::Checked);
+        refreshCoverBookkeeping();
+        break;
+    case 2: {
+        const QString name = item->text().trimmed();
+        t.displayName = name.isEmpty() ? t.name : name;
+        rebuildDerivedContent();
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void LabelDialog::addTrack()
+{
+    LabelTrack t;
+    t.name = tr("Track %1").arg(m_tracks.size() + 1);
+    t.displayName = t.name;
+    m_tracks.append(t);
+    rebuildTrackTable();
+    rebuildDerivedContent();
+}
+
+void LabelDialog::removeSelectedTracks()
+{
+    QList<int> rows;
+    const QModelIndexList picked =
+        m_trackTable->selectionModel()->selectedRows();
+    for (const QModelIndex &idx : picked)
+        rows.append(idx.row());
+    if (rows.isEmpty())
+        return;
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int row : rows)
+        if (row >= 0 && row < m_tracks.size())
+            m_tracks.removeAt(row);
+    rebuildTrackTable();
+    refreshCoverBookkeeping();
+}
+
+void LabelDialog::chooseTrackImage(int row)
+{
+    if (row < 0 || row >= m_tracks.size())
+        return;
     const QList<QByteArray> formats = QImageReader::supportedImageFormats();
     QStringList exts;
     for (const QByteArray &f : formats)
         exts << QStringLiteral("*.") + QString::fromLatin1(f);
-    const QStringList files = QFileDialog::getOpenFileNames(
-        this, tr("Add cover images"), QString(),
+    const QString file = QFileDialog::getOpenFileName(
+        this, tr("Choose cover image"), QString(),
         tr("Images (%1)").arg(exts.join(QLatin1Char(' '))));
-    const bool wasEmpty = m_covers.isEmpty();
-    bool added = false;
-    for (const QString &file : files) {
-        QImage img(file);
-        if (img.isNull())
-            continue;
-        m_covers.append(img.convertToFormat(QImage::Format_ARGB32));
-        added = true;
-    }
-    if (!added)
+    if (file.isEmpty())
         return;
-    rebuildCoverThumbs();
-    // A new cover count changes what the cover-order checklist and the
-    // "enable covers" toggle can offer, so refresh those sidebar rows too.
-    if (m_coversCheck) {
-        m_coversCheck->setEnabled(true);
-        // First cover added: turn the layer on so it actually appears (the
-        // checkbox handler pushes coversEnabled into the config and repaints).
-        if (wasEmpty && !m_coversCheck->isChecked())
-            m_coversCheck->setChecked(true);
-    }
-    rebuildOrderList();
-    updateCoverRows();
-    pushContentToPreview();
-}
-
-void LabelDialog::removeSelectedCover()
-{
-    const QList<QListWidgetItem *> selected = m_contentCovers->selectedItems();
-    if (selected.isEmpty())
+    QImage img(file);
+    if (img.isNull()) {
+        QMessageBox::critical(this, tr("Could not load image"),
+                              tr("Not a readable image:\n%1").arg(file));
         return;
-    QList<int> rows;
-    for (const QListWidgetItem *item : selected)
-        rows.append(m_contentCovers->row(item));
-    std::sort(rows.begin(), rows.end(), std::greater<int>());
-    for (int row : rows)
-        if (row >= 0 && row < m_covers.size())
-            m_covers.removeAt(row);
-    // Manual cover ordering indexes into m_covers; the indices just shifted, so
-    // drop the custom order rather than leave it pointing at the wrong covers.
-    m_cfg.coverOrder.clear();
-    rebuildCoverThumbs();
-    if (m_coversCheck)
-        m_coversCheck->setEnabled(!m_covers.isEmpty());
-    rebuildOrderList();
-    updateCoverRows();
-    pushContentToPreview();
-}
-
-void LabelDialog::rebuildCoverThumbs()
-{
-    m_contentCovers->clear();
-    for (int i = 0; i < m_covers.size(); ++i) {
-        auto *item = new QListWidgetItem(
-            QIcon(QPixmap::fromImage(m_covers[i].scaled(
-                56, 56, Qt::KeepAspectRatioByExpanding,
-                Qt::SmoothTransformation))),
-            QString::number(i + 1));
-        m_contentCovers->addItem(item);
     }
+    m_tracks[row].cover = img.convertToFormat(QImage::Format_ARGB32);
+    m_tracks[row].showCover = true;
+    rebuildTrackTable();
+    refreshCoverBookkeeping();
 }
 
 // ---- Sidebar --------------------------------------------------------------------
@@ -365,11 +486,12 @@ QWidget *LabelDialog::buildSidebar()
         0, 0, style()->pixelMetric(QStyle::PM_LayoutRightMargin), 0);
     auto *closeBtn = new QPushButton(tr("Close"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
-    auto *saveBtn = new QPushButton(tr("Save Label…"));
-    saveBtn->setDefault(true);
-    connect(saveBtn, &QPushButton::clicked, this, &LabelDialog::saveLabel);
+    auto *exportBtn = new QPushButton(tr("Export Label…"));
+    exportBtn->setToolTip(tr("Render the label to a PNG/JPEG image for print"));
+    exportBtn->setDefault(true);
+    connect(exportBtn, &QPushButton::clicked, this, &LabelDialog::saveLabel);
     buttonRow->addWidget(closeBtn);
-    buttonRow->addWidget(saveBtn);
+    buttonRow->addWidget(exportBtn);
     outer->addLayout(buttonRow);
     return panel;
 }
@@ -568,35 +690,8 @@ QGroupBox *LabelDialog::buildTitleGroup()
     });
     form->addRow(tr("Offset Y:"), spinRow(m_titleOffsetY));
 
-    m_titleOverride = new QTextEdit;
-    m_titleOverride->setFixedHeight(90);
-    m_titleOverride->setAcceptRichText(false);
-    m_titleOverride->setPlaceholderText(
-        tr("Override title (blank = album title). Type your own, one line "
-           "each; select a line and use “Line size” to scale it."));
-    m_titleOverride->setToolTip(
-        tr("Leave empty to use the album title. Type your own text with line "
-           "breaks for a multi-line title. To make a line bigger or smaller "
-           "than the rest, click into it (or select several) and change the "
-           "“Line size” multiplier below."));
-    connect(m_titleOverride, &QTextEdit::textChanged, this,
-            &LabelDialog::titleTextChanged);
-    connect(m_titleOverride, &QTextEdit::cursorPositionChanged, this,
-            &LabelDialog::syncTitleLineSize);
-    connect(m_titleOverride, &QTextEdit::selectionChanged, this,
-            &LabelDialog::syncTitleLineSize);
-    form->addRow(tr("Text:"), m_titleOverride);
-
-    m_titleLineSize = new QDoubleSpinBox;
-    m_titleLineSize->setRange(0.3, 3.0);
-    m_titleLineSize->setSingleStep(0.1);
-    m_titleLineSize->setValue(1.0);
-    m_titleLineSize->setSuffix(QStringLiteral("×"));
-    m_titleLineSize->setToolTip(tr(
-        "Font size of the selected title line(s), relative to the base size."));
-    connect(m_titleLineSize, &QDoubleSpinBox::valueChanged, this,
-            &LabelDialog::applyTitleLineSize);
-    form->addRow(tr("Line size:"), m_titleLineSize);
+    // The title *text* (a rich, per-line-sized override) is edited in the left
+    // content panel; this group is styling only.
     return box;
 }
 
