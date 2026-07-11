@@ -1,9 +1,34 @@
 # cdlabel
 
 The CD label editor for BinCue Studio — a Qt 6 / C++ application that renders a
-circular label for inkjet-printable discs, with a live preview beside a
-customisation sidebar. It runs standalone or is launched from BinCue Studio's
-**Create Label…** button.
+circular label for inkjet-printable discs. The window is three columns: a
+**content panel** (what the label says and shows), the **live preview**, and the
+**customisation sidebar** (how it looks). It runs standalone or is launched from
+BinCue Studio's **Create Label…** button.
+
+## The content panel
+
+The left panel edits the label's *content*, pre-filled from the CD project when
+launched from BinCue Studio:
+
+- **Title** — the printed title, seeded with the album title. Multi-line; click
+  into a line (or select several) and change the **Line size** multiplier to
+  scale it. Leaving it equal to the album title keeps it tracking the project.
+- **Tracks** — one row per track: tick whether its **name** appears in the
+  listing, whether its **cover** joins the artwork, and edit the printed name.
+  So a track can stay on the disc but off the label, or contribute only its
+  cover. **Add**/**Remove** manage rows by hand (standalone use); double-click a
+  row's last column to assign a cover image to a hand-added track.
+
+Content and design together save as a **label project** via **Save Project…**
+(see the format below). Standalone, an **Open…** button loads one back; launched
+from BinCue Studio, the content is bound to the CD project, so Open is not
+offered — instead the editor auto-loads the label project saved beside the CD
+project and re-applies its per-track choices to the current tracks, **matched by
+track name** (tracks added meanwhile appear with defaults; removed ones drop
+out). The label project file itself only changes when you save.
+
+**Export Label…** renders the finished label to a print-ready PNG/JPEG.
 
 ## The label model
 
@@ -38,18 +63,23 @@ cmake --build build
 ## Run
 
 BinCue Studio's **Create Label…** button launches the editor automatically (it
-looks for `cdlabel/build/cdlabel` next to the BinCue Studio binary, then `cdlabel`
-on `PATH`; `CDLABEL_BIN` overrides). Standalone:
+looks for `cdlabel` next to the BinCue Studio binary, then on `PATH`;
+`CDLABEL_BIN` overrides). Standalone (paths below assume the top-level build,
+which puts both executables in `build/bin/`):
 
 ```sh
-# Editor on its own (a demo album fills the preview):
-./build/cdlabel [--preset preset.json]
+# Editor on its own (empty content panel — type the title/tracks yourself):
+./build/bin/cdlabel [--preset preset.json]
 
-# Editor on a real project (its title, tracks and cover art fill the label):
-./build/cdlabel --project project.bincue.json [--preset preset.json]
+# Open a saved label project (content + design):
+./build/bin/cdlabel album.cdlabel.json
+
+# Editor on a CD project (its title, tracks and cover art fill the panel; the
+# label project beside it, if any, is picked up via --art-project):
+./build/bin/cdlabel --project project.bincue.json [--art-project album.cdlabel.json]
 
 # Headless render — no display server needed:
-./build/cdlabel --project project.bincue.json --preset preset.json \
+./build/bin/cdlabel --art-project album.cdlabel.json \
     --render out.png [--size 1400] [--matte]
 ```
 
@@ -57,12 +87,17 @@ on `PATH`; `CDLABEL_BIN` overrides). Standalone:
 
 | Option | Meaning |
 |---|---|
-| `--project <path>` | A saved BinCue Studio project. `album_title`, `tracks[].title`, `tracks[].source_path` and `tracks[].include_cover` are read; tracks with `include_cover: false` still appear in the listing but contribute no cover art. |
-| `--preset <path>` | A label preset JSON to load on start. |
+| `--project <path>` | A saved BinCue Studio project seeding the content: `album_title`, `tracks[].title` and `tracks[].source_path` are read, and every track's cover art is extracted. Which names/covers actually appear is chosen in the content panel. |
+| `--art-project <path>` | A cdlabel label project. Loaded if the file exists (with `--project`, its per-track choices are synced onto the CD project's tracks by name) and used as the **Save Project** target. A lone positional file argument is the same thing. |
+| `--preset <path>` | A label preset JSON to load on start (design only). |
 | `--render <out.png>` | Render straight to this image file and exit (headless — no window). |
 | `--size <px>` | Rendered image side in pixels. Without it, the export is the disc's physical size at 600 DPI. |
 | `--matte` | Composite the transparent label onto a grey disc so the render reads like print. |
-| `--name <name>` | Default file name offered in the editor's Save dialog. |
+| `--name <name>` | Default file name offered in the editor's Export dialog. |
+
+BinCue Studio passes `--project` (a temp copy of the current project) and, once
+its project has been saved, `--art-project` pointing beside it: for
+`foo.bincue.json` the label project is `foo.cdlabel.json`.
 
 ## Knob reference
 
@@ -101,7 +136,7 @@ Curved along the rim (`arc`) or a straight banner in a top band (`straight`).
 | Colour | `title_color` | Fill colour. |
 | Outline | `title_outline` + `title_outline_color` / `title_outline_width` | Optional outline and its colour/width (width as a fraction of the glyph). |
 | Offset X / Y | `title_offset_x` / `title_offset_y` | Nudge off the default spot (fractions of the outer radius). On `arc`, +X rotates around the rim and +Y slides toward the hub. |
-| Override text | `title_override` | Replace the album title: one disc line per text line, with an optional leading `[1.5]` scaling that line. |
+| Override text | `title_override` | Replace the album title: one disc line per text line, with an optional leading `[1.5]` scaling that line. Edited via the content panel's Title box (empty = the album title). |
 
 ### Tracks
 
@@ -248,10 +283,35 @@ straight layouts, a ring for curved ones).
 | Tint | `panel_tint` / `panel_tint_strength` | Colour wash over the zone (either mode). |
 | Fade | `panel_fade` | Lighten/darken wash over the zone (either mode). |
 
-## Preset format
+## File formats
 
-Presets are plain JSON with snake-case keys, meant to be human-editable. Each
-carries a `"format": "BCSLv1"` tag; a file with no tag or a different major
-version is rejected, so only genuine BinCue Studio Label configs load. Additive
-fields keep the same major — unknown keys are ignored and missing ones default —
-so presets stay forward- and backward-compatible as fields come and go.
+Both formats are plain JSON with snake-case keys, meant to be human-editable,
+and both are tag-gated: a file with no format tag or a different major version
+is rejected, so only genuine BinCue Studio Label files load. Additive fields
+keep the same major — unknown keys are ignored and missing ones default — so
+files stay forward- and backward-compatible as fields come and go.
+
+**Presets** (design only) carry `"format": "BCSLv1"` and hold exactly the knob
+keys above.
+
+**Label projects** (content + design) carry `"format": "BCSLPv1"`:
+
+```json
+{
+  "format": "BCSLPv1",
+  "title": "What the label prints (the album title / override)",
+  "tracks": [
+    { "name": "Original track name (the match key)",
+      "source_path": "/path/to/audio.flac",
+      "display_name": "What the listing prints",
+      "show_name": true,
+      "show_cover": true }
+  ],
+  "design": { "format": "BCSLv1", "…": "a full preset object" }
+}
+```
+
+Cover images are not embedded — they are re-extracted from each track's
+`source_path` on load, so the file stays small and follows the audio's current
+art. Per-track choices re-attach by `name`, which is what lets a label project
+survive its CD project gaining or losing tracks.

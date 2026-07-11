@@ -33,7 +33,8 @@ Two executables are built by one CMake project:
 - One-click **BIN + CUE** export with embedded CD-Text.
 - Burn to a local drive, or to a burner on **another machine over SSH** — the
   image is built locally, uploaded, and written with `cdrdao`.
-- A full circular **label editor** with live preview and reusable JSON presets.
+- A full circular **label editor** with live preview, reusable JSON presets,
+  and its own label-project format saved beside the CD project.
 
 ## The Disc panel, field by field
 
@@ -47,8 +48,11 @@ Most fields are self-explanatory metadata. The ones specific to CD mastering:
 | **Pre-gap (lead-in)** | The silent gap (`PREGAP`) before track 1. The Red Book fixes this at **2 s**; other values are off-spec and may not play back reliably (a ⚠ appears if you change it). |
 | **Gap between tracks** | The gap every track ends up with (0 after the last). Unlike the lead-in, this is only a *convention*, not enforced by the Red Book — set it to `0 s` for a gapless album, or trim it to reclaim a few seconds when a disc is just over capacity. |
 | **Baked-in Gap** (per track) | Trailing silence a source file *already contains*. On export each track's baked-in gap is trimmed or padded so the real gap matches "Gap between tracks", so pre-existing silence is never double-counted. |
-| **Art** (per track) | Whether this track's cover art is passed to the label editor. Untick to keep a track in the listing but exclude its cover from the label. |
 | **Fill from Selected Track…** | Copies album title, performer, songwriter, genre, year and catalog from the selected track's tags into the disc-wide fields. |
+
+(Which track names and covers appear on the *label* is chosen per track in the
+label editor itself, not here — the `.bincue.json` project stays purely about
+the audio.)
 
 The **capacity meter** at the bottom sums program audio plus every gap and pre-gap
 against the chosen disc size, so you always see exactly how much fits.
@@ -74,6 +78,15 @@ for the track list; you turn cover art, decoration and background layers on or o
 one at a time; and everything composites together. A live preview updates as you
 work, and any look you land on saves to a human-editable JSON preset (two are
 built in, **Poster** and **Polaroid**).
+
+The label's *content* is edited in a panel on the left: the printed title (each
+line individually scalable) and, per track, whether its **name** appears in the
+listing, whether its **cover** joins the artwork, and a **rename** — so a track
+can stay on the disc but off the label, or vice versa. Content and design
+together save as a **label project** (`*.cdlabel.json`) kept beside the CD
+project; when you relaunch the editor from BinCue Studio it picks the label
+project up again and re-applies your per-track choices to the current track
+list, matching tracks by name.
 
 | Poster — straight banner, cover mosaic, bottom track table | Polaroid — curved title, feature-cover ring, arc track list |
 |---|---|
@@ -109,8 +122,8 @@ gradient **hub**, and a **metallic hub ring** hugging the centre hole.
 
 - **Title** — *curved* along the rim, or a *straight banner* in a band across the
   top. Full control over font, size, bold/italic/underline, colour, an optional
-  outline, and free X/Y nudging; or override the text entirely with your own
-  lines (each line individually scalable).
+  outline, and free X/Y nudging. The text itself is edited in the content panel
+  (multi-line, each line individually scalable).
 - **Tracks** — *curved concentric rings*, *two rim-hugging columns*, or a
   *multi-column table* in a bottom band. Optional track numbers, underline, and
   the same font/size/colour/outline controls.
