@@ -1,0 +1,12 @@
+# Build directories (top-level and per-subproject, e.g. cdlabel/build)
+build/
+
+# clangd / tooling caches
+.cache/
+
+# Qt Creator / IDE local files
+CMakeLists.txt.user
+*.autosave
+
+# Claude Code local settings
+.claude/settings.local.json

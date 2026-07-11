@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=BinCue Studio
+Comment=Assemble audio CD projects, export BIN/CUE and burn them
+Exec=bincue-studio
+Icon=bincue-studio
+Terminal=false
+Categories=AudioVideo;Audio;DiscBurning;Qt;
+Keywords=CD;audio;cue;bin;burn;cdrdao;red book;
+StartupNotify=true

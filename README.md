@@ -1,0 +1,145 @@
+# BinCue Studio
+
+An **Audio CD (CD-DA) project suite** for Linux: assemble tracks into a
+Red Book-correct disc image, design a printable circular label, and burn to a
+local or remote CD writer — all from one Qt 6 / C++ application.
+
+It grew out of a few real needs: burning a disc on a computer whose CD writer
+lives on *another* machine; taking the fuss out of managing the silent gaps
+between tracks so the timing comes out right without hand-editing cue sheets; and
+quickly turning an album's own cover art into a printable label. So remote burning
+over SSH, automatic gap normalisation, and the built-in label editor are all
+first-class features, not afterthoughts.
+
+Two executables are built by one CMake project:
+
+- **bincue-studio** (`src/`) — the project tool. Builds a single-file CD-DA image
+  (BIN + CUE) from FLAC (or any ffmpeg-readable) tracks, with CD-Text metadata,
+  Red Book pre-gaps, per-track gap normalisation, a live capacity meter, and
+  built-in burning. Projects are saved as `*.bincue.json`.
+- **cdlabel** (`cdlabel/`) — the printable CD label editor, launched from
+  BinCue Studio (**Create Label…**) or run standalone. See
+  [`cdlabel/README.md`](cdlabel/README.md).
+
+![BinCue Studio main window](gallery/main_window.png)
+
+## Features
+
+- Drag-and-drop track ordering with per-disc and per-track metadata.
+- Automatic tag import (title, performer, songwriter, ISRC, cover art) from the
+  source files via TagLib.
+- Red Book-aware timing: correct lead-in pre-gap, normalised inter-track gaps,
+  and a live capacity meter that turns red when you exceed the disc.
+- One-click **BIN + CUE** export with embedded CD-Text.
+- Burn to a local drive, or to a burner on **another machine over SSH** — the
+  image is built locally, uploaded, and written with `cdrdao`.
+- A full circular **label editor** with live preview and reusable JSON presets.
+
+## The Disc panel, field by field
+
+Most fields are self-explanatory metadata. The ones specific to CD mastering:
+
+| Field | What it does |
+|---|---|
+| **Catalog (UPC)** | The disc's Media Catalog Number — a 13-digit UPC/EAN barcode. Written as `CATALOG` in the cue sheet; ignored unless it is exactly 13 digits. Optional. |
+| **ISRC** (per track) | The 12-character International Standard Recording Code identifying each recording. Auto-filled from the source's tags when present. Optional. |
+| **Disc size** | The blank's capacity — **74 min (~650 MB)** or **80 min (~700 MB)** — which sets where the capacity meter tops out. |
+| **Pre-gap (lead-in)** | The silent gap (`PREGAP`) before track 1. The Red Book fixes this at **2 s**; other values are off-spec and may not play back reliably (a ⚠ appears if you change it). |
+| **Gap between tracks** | The gap every track ends up with (0 after the last). Unlike the lead-in, this is only a *convention*, not enforced by the Red Book — set it to `0 s` for a gapless album, or trim it to reclaim a few seconds when a disc is just over capacity. |
+| **Baked-in Gap** (per track) | Trailing silence a source file *already contains*. On export each track's baked-in gap is trimmed or padded so the real gap matches "Gap between tracks", so pre-existing silence is never double-counted. |
+| **Art** (per track) | Whether this track's cover art is passed to the label editor. Untick to keep a track in the listing but exclude its cover from the label. |
+| **Fill from Selected Track…** | Copies album title, performer, songwriter, genre, year and catalog from the selected track's tags into the disc-wide fields. |
+
+The **capacity meter** at the bottom sums program audio plus every gap and pre-gap
+against the chosen disc size, so you always see exactly how much fits.
+
+## Burning
+
+Export produces a `BIN + CUE` pair you can burn with any tool, or use the built-in
+**Burn to Disc…** dialog. The burner can be **local** or a **remote host reached
+over SSH** — handy when your writer lives on another machine. The image is built
+locally, uploaded if remote, and written with `cdrdao` (the exact command is
+shown before you commit). Options include write speed, **Simulate only** (a laser-off
+test run), eject-when-done, and free-form extra `cdrdao` options.
+
+| Choosing the drive & options | Live burn log |
+|---|---|
+| ![Burn to Disc dialog](gallery/burn_window_ssh.png) | ![Burning progress](gallery/burning_window_ssh.png) |
+
+## The label editor (cdlabel)
+
+cdlabel builds a printable disc label by **stacking independent layers** — there
+are no exclusive "modes". You choose a layout for the title and, separately, one
+for the track list; you turn cover art, decoration and background layers on or off
+one at a time; and everything composites together. A live preview updates as you
+work, and any look you land on saves to a human-editable JSON preset (two are
+built in, **Poster** and **Polaroid**).
+
+| Poster — straight banner, cover mosaic, bottom track table | Polaroid — curved title, feature-cover ring, arc track list |
+|---|---|
+| ![Poster preset](gallery/poster_preset.png) | ![Polaroid preset](gallery/polaroid_preset.png) |
+
+Think of the label as a stack drawn from the back forward:
+
+**1. Background & disc geometry.** The disc is fully parametric — outer diameter,
+centre-hole diameter, and the printer's printable outer/inner margins — with
+presets for common media (a 120 mm inkjet disc, hub-printable discs, 80 mm mini
+CDs). Underneath everything you can lay a solid or gradient **backdrop**, or your
+own **background image**. Turn on **full bleed** to run the background past the
+printable ring to the disc edge (the printer clips it), so there's no white margin.
+
+**2. Cover art**, drawn from the covers embedded in your tracks, in two
+independent sub-layers:
+
+- a **background mosaic** — every cover repeated across the disc in a *grid* or
+  *spiral*, then washed back (fade, desaturate, blur, tint) so text stays
+  readable over it;
+- **feature covers** — each distinct cover shown once, crisp and full-colour,
+  either as a *ring* around the rim or *scattered* through the middle.
+
+You can reorder covers or drop individual ones by hand, or let an automatic
+anti-clumping spread place them for you.
+
+**3. Decoration.** Optional flourishes over the artwork: an **overlay band** (a
+feathered translucent ring or horizontal strip), a faint **circular waveform**
+seeded by the track names (stable, but unique to each album), a filled or
+gradient **hub**, and a **metallic hub ring** hugging the centre hole.
+
+**4. Text — title and track list.** Each picks its own layout:
+
+- **Title** — *curved* along the rim, or a *straight banner* in a band across the
+  top. Full control over font, size, bold/italic/underline, colour, an optional
+  outline, and free X/Y nudging; or override the text entirely with your own
+  lines (each line individually scalable).
+- **Tracks** — *curved concentric rings*, *two rim-hugging columns*, or a
+  *multi-column table* in a bottom band. Optional track numbers, underline, and
+  the same font/size/colour/outline controls.
+
+**5. Readability helpers**, so text reads over busy art:
+
+- **Text plates** — a rounded pill behind each individual line of text (an
+  arc-shaped pill for curved text).
+- **Text panels** — a treatment of the whole zone behind the title and/or the
+  tracks: re-blur the mosaic there, fill it solid, or wash it with a tint/fade.
+
+See [`cdlabel/README.md`](cdlabel/README.md) for the exhaustive per-knob reference
+and the headless (`--render`) mode for scripting label PNGs without the GUI.
+
+## Build
+
+```sh
+cmake -B build
+cmake --build build
+```
+
+Both executables land in `build/bin/`, side by side — that is how bincue-studio
+finds cdlabel at runtime (`CDLABEL_BIN` overrides the path; PATH is the fallback).
+
+### Requirements
+
+- **Qt 6** (Core / Gui / Widgets) and **CMake ≥ 3.21** to build.
+- At runtime: **ffmpeg** / **ffprobe** on `PATH` (audio decoding), and
+  **cdrdao** for burning.
+- **TagLib ≥ 2.0** is optional at build time — it enables tag import in
+  bincue-studio and embedded cover-art extraction in cdlabel. Strongly
+  recommended.

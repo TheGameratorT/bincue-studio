@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- cdlabel: a disc with colored label arcs and a pencil -->
+  <circle cx="64" cy="64" r="58" fill="#f6f1e7" stroke="#54432f" stroke-width="4"/>
+  <g fill="none" stroke-width="13" transform="rotate(-90 64 64)">
+    <circle cx="64" cy="64" r="42" stroke="#e05d4b" stroke-dasharray="66 197.9"/>
+    <circle cx="64" cy="64" r="42" stroke="#3ba99c" stroke-dasharray="66 197.9"
+            transform="rotate(120 64 64)"/>
+    <circle cx="64" cy="64" r="42" stroke="#e8a832" stroke-dasharray="66 197.9"
+            transform="rotate(240 64 64)"/>
+  </g>
+  <circle cx="64" cy="64" r="19" fill="#ffffff" stroke="#54432f" stroke-width="3"/>
+  <circle cx="64" cy="64" r="7" fill="#54432f"/>
+  <g transform="translate(80 46) rotate(-45)">
+    <rect x="-8" y="-52" width="16" height="52" rx="3"
+          fill="#f0c040" stroke="#54432f" stroke-width="3.5"/>
+    <path d="M-8 0 L0 16 L8 0 Z" fill="#f2ddb5" stroke="#54432f"
+          stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M-3 6 L0 16 L3 6 Z" fill="#54432f"/>
+  </g>
+</svg>

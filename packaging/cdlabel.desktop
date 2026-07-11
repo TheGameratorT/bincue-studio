@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CD Label Editor
+Comment=Design printable CD labels with cover art, arcs and track lists
+Exec=cdlabel
+Icon=cdlabel
+Terminal=false
+Categories=Graphics;Qt;
+Keywords=CD;label;cover;print;disc;
+StartupNotify=true

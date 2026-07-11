@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- BinCue Studio: a CD carrying an audio waveform -->
+  <defs>
+    <linearGradient id="disc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a7c7e7"/>
+      <stop offset="0.5" stop-color="#e3eef8"/>
+      <stop offset="1" stop-color="#7fa6c9"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#disc)" stroke="#33506b" stroke-width="4"/>
+  <path d="M18 64h12l6-14 8 28 8-42 12 56 12-56 8 42 8-28 6 14h12"
+        fill="none" stroke="#c0392b" stroke-width="5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="64" cy="64" r="19" fill="#eef4fa" stroke="#33506b" stroke-width="3"/>
+  <circle cx="64" cy="64" r="7" fill="#33506b"/>
+</svg>
