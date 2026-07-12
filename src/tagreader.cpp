@@ -1,8 +1,9 @@
 #include "tagreader.h"
 
 #ifdef HAVE_TAGLIB
-#include <taglib/fileref.h>
 #include <taglib/tpropertymap.h>
+
+#include "taglibpath.h"
 #endif
 
 #ifdef HAVE_TAGLIB
@@ -40,7 +41,7 @@ TrackTags readTrackTags(const QString &path)
 {
     TrackTags tags;
 #ifdef HAVE_TAGLIB
-    const TagLib::FileRef file(path.toUtf8().constData());
+    const TagLib::FileRef file = taglibOpen(path);
     if (file.isNull())
         return tags;
     const TagLib::PropertyMap props = file.properties();
@@ -58,7 +59,7 @@ AlbumTags readAlbumTags(const QString &path)
 {
     AlbumTags tags;
 #ifdef HAVE_TAGLIB
-    const TagLib::FileRef file(path.toUtf8().constData());
+    const TagLib::FileRef file = taglibOpen(path);
     if (file.isNull())
         return tags;
     const TagLib::PropertyMap props = file.properties();

@@ -12,8 +12,9 @@
 #include <QSet>
 
 #ifdef HAVE_TAGLIB
-#include <taglib/fileref.h>
 #include <taglib/tvariant.h>
+
+#include "taglibpath.h"
 #endif
 
 namespace {
@@ -26,7 +27,7 @@ QList<QByteArray> embeddedPictureBytes(const QString &path)
 #ifdef HAVE_TAGLIB
     // TagLib 2's unified picture API covers FLAC picture blocks, ID3 APIC
     // frames, MP4 covr atoms and Vorbis/Opus METADATA_BLOCK_PICTURE alike.
-    TagLib::FileRef file(path.toUtf8().constData());
+    TagLib::FileRef file = taglibOpen(path);
     if (file.isNull())
         return out;
     for (const auto &pic : file.complexProperties("PICTURE")) {

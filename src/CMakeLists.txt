@@ -54,6 +54,10 @@ qt_add_resources(bincue-studio "actionicons"
 if(TAGLIB_FOUND)
     target_link_libraries(bincue-studio PRIVATE PkgConfig::TAGLIB)
     target_compile_definitions(bincue-studio PRIVATE HAVE_TAGLIB=1)
+    # Shared header-only helper for opening Unicode paths with TagLib (see
+    # common/taglibpath.h); the same file backs cdlabel's cover extractor.
+    target_include_directories(bincue-studio PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common)
     message(STATUS "TagLib found — tag import enabled in bincue-studio")
 else()
     message(WARNING "TagLib not found — tag import disabled in bincue-studio")

@@ -112,10 +112,19 @@ add_custom_target(deploy ALL
 # windeployqt only covers Qt itself; the MinGW runtime and third-party DLLs
 # (libstdc++, taglib, ...) are resolved through ldd. MSYS2-only, which is the
 # supported Windows build environment.
+#
+# The sweep must include the Qt plugins windeployqt staged under dist/, not just
+# the two exes: image-format plugins like imageformats/qjpeg.dll pull in
+# libjpeg/libwebp/libtiff, which are reachable *only* through the plugin, never
+# through the app exe. Missing those DLLs makes the plugin fail to load, so
+# QImage decodes PNG (built into Qt6Gui) but silently returns null for JPEG &
+# co. We scan every deployed exe/dll and loop to a fixpoint so a freshly copied
+# dependency's own deps get pulled in too. Windows resolves a plugin's DLLs from
+# the process exe's directory, so landing them all in dist/ is enough.
 if(MINGW)
     add_custom_command(TARGET deploy POST_BUILD
-        COMMAND bash -c "ldd '${DIST_DIR}/bincue-studio.exe' '${DIST_DIR}/cdlabel.exe' | grep -oE '/(mingw64|ucrt64|clang64)/[^ ]+[.]dll' | sort -u | xargs -r cp -u -t '${DIST_DIR}'"
-        COMMENT "Copying MinGW runtime DLLs to dist/"
+        COMMAND bash -c "prev=-1; while true; do ldd $(find '${DIST_DIR}' -type f \\( -name '*.exe' -o -name '*.dll' \\)) 2>/dev/null | grep -oE '/(mingw64|ucrt64|clang64)/[^ ]+[.]dll' | sort -u | xargs -r cp -u -t '${DIST_DIR}'; n=$(find '${DIST_DIR}' -maxdepth 1 -name '*.dll' | wc -l); [ \"$n\" = \"$prev\" ] && break; prev=$n; done"
+        COMMENT "Copying MinGW runtime + plugin DLLs to dist/"
         VERBATIM)
 endif()
 
