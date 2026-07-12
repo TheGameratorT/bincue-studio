@@ -1,0 +1,16 @@
+This installation bundles ffmpeg and ffprobe, which BinCue Studio uses to decode
+and probe your audio tracks. ffmpeg is a separate project, not part of BinCue
+Studio.
+
+  ffmpeg 8.1.2 (gyan.dev "essentials" static build)
+  https://ffmpeg.org  /  https://www.gyan.dev/ffmpeg/builds/
+  Copyright the FFmpeg authors.
+  This build is licensed under the GNU General Public License, version 3 (GPLv3).
+
+The bundled files (ffmpeg.exe and ffprobe.exe) are taken from the official
+prebuilt Windows "essentials" build published at
+https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2 . The complete
+corresponding source code, and the exact build configuration, are available from
+that project and from https://ffmpeg.org/download.html .
+
+The GPL license text is available at https://www.gnu.org/licenses/gpl-3.0.html

@@ -1,0 +1,14 @@
+This installation bundles cdrdao, the CD writer BinCue Studio drives to burn
+discs. cdrdao is a separate program, not part of BinCue Studio.
+
+  cdrdao 1.2.6
+  https://github.com/cdrdao/cdrdao
+  Copyright the cdrdao authors.
+  Licensed under the GNU General Public License, version 2 or later (GPLv2+).
+
+The bundled files (cdrdao.exe and its msys-*.dll runtime) are the official
+prebuilt Windows binaries from that project's 1.2.6 release
+(https://github.com/cdrdao/cdrdao/releases/tag/rel_1_2_6). The complete
+corresponding source code is available at the same repository and release.
+
+The GPL license text is available at https://www.gnu.org/licenses/gpl-2.0.html

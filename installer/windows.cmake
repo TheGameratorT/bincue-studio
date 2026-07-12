@@ -5,6 +5,86 @@
 
 set(DIST_DIR "${CMAKE_BINARY_DIR}/dist")
 
+# Bundle cdrdao (the CD writer) so burning works out of the box. cdrdao has
+# shipped native-Windows support since 1.2.6 — it talks to the drive by letter
+# (--device D) over SPTI, not the dead ASPI layer — so a local burn needs no
+# extra setup. We fetch its official prebuilt bundle, pinned by hash, and stage
+# cdrdao.exe plus its MinGW runtime DLLs next to bincue-studio.exe; Windows
+# resolves the subprocess name against the application directory first, so the
+# app finds this cdrdao without touching PATH.
+set(CDRDAO_VERSION "1.2.6")
+set(CDRDAO_URL "https://github.com/cdrdao/cdrdao/releases/download/rel_1_2_6/cdrdao126.zip")
+set(CDRDAO_SHA256 "653e56c49f94771f87cd9f4ceefc255329714ba5066bd78e30edaa464c322a3a")
+set(CDRDAO_ZIP "${CMAKE_BINARY_DIR}/cdrdao-${CDRDAO_VERSION}.zip")
+set(CDRDAO_DIR "${CMAKE_BINARY_DIR}/cdrdao-${CDRDAO_VERSION}")
+
+# The app only ever invokes `cdrdao`; the bundle's other exes (cue2toc, toc2cue,
+# toc2cddb) are unused, so we stage just the writer and its runtime DLLs.
+set(CDRDAO_FILES
+    cdrdao.exe
+    msys-2.0.dll
+    msys-gcc_s-seh-1.dll
+    msys-iconv-2.dll
+    msys-stdc++-6.dll)
+
+if(NOT EXISTS "${CDRDAO_DIR}/cdrdao.exe")
+    message(STATUS "Fetching cdrdao ${CDRDAO_VERSION} for bundling…")
+    file(DOWNLOAD "${CDRDAO_URL}" "${CDRDAO_ZIP}"
+        EXPECTED_HASH SHA256=${CDRDAO_SHA256}
+        SHOW_PROGRESS STATUS _cdrdao_dl)
+    list(GET _cdrdao_dl 0 _cdrdao_dl_code)
+    if(NOT _cdrdao_dl_code EQUAL 0)
+        list(GET _cdrdao_dl 1 _cdrdao_dl_msg)
+        message(FATAL_ERROR "Could not download cdrdao: ${_cdrdao_dl_msg}")
+    endif()
+    file(ARCHIVE_EXTRACT INPUT "${CDRDAO_ZIP}" DESTINATION "${CDRDAO_DIR}")
+endif()
+
+set(CDRDAO_STAGE "")
+foreach(_f ${CDRDAO_FILES})
+    if(NOT EXISTS "${CDRDAO_DIR}/${_f}")
+        message(FATAL_ERROR "cdrdao bundle is missing ${_f} — delete "
+            "${CDRDAO_DIR} to re-fetch.")
+    endif()
+    list(APPEND CDRDAO_STAGE "${CDRDAO_DIR}/${_f}")
+endforeach()
+
+# Bundle ffmpeg/ffprobe (audio decoding + probing) the same way. We use the
+# gyan.dev "essentials" static build — two self-contained exes, no DLLs — which
+# already covers FLAC and the other formats the app hands to it. It is large
+# (~100 MB per exe), which is why these were historically left out; bundling
+# them means a working install with nothing for the user to fetch.
+set(FFMPEG_VERSION "8.1.2")
+set(FFMPEG_URL "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.7z")
+set(FFMPEG_SHA256 "e25b682664025d49034c981afb4bae36238a40f29a3cc1c713ad9a8b5b3528f6")
+set(FFMPEG_ARCHIVE "${CMAKE_BINARY_DIR}/ffmpeg-${FFMPEG_VERSION}.7z")
+set(FFMPEG_DIR "${CMAKE_BINARY_DIR}/ffmpeg-${FFMPEG_VERSION}")
+# The archive unpacks into a versioned top folder with the exes under bin/.
+set(FFMPEG_BIN "${FFMPEG_DIR}/ffmpeg-${FFMPEG_VERSION}-essentials_build/bin")
+set(FFMPEG_FILES ffmpeg.exe ffprobe.exe)
+
+if(NOT EXISTS "${FFMPEG_BIN}/ffmpeg.exe")
+    message(STATUS "Fetching ffmpeg ${FFMPEG_VERSION} for bundling…")
+    file(DOWNLOAD "${FFMPEG_URL}" "${FFMPEG_ARCHIVE}"
+        EXPECTED_HASH SHA256=${FFMPEG_SHA256}
+        SHOW_PROGRESS STATUS _ffmpeg_dl)
+    list(GET _ffmpeg_dl 0 _ffmpeg_dl_code)
+    if(NOT _ffmpeg_dl_code EQUAL 0)
+        list(GET _ffmpeg_dl 1 _ffmpeg_dl_msg)
+        message(FATAL_ERROR "Could not download ffmpeg: ${_ffmpeg_dl_msg}")
+    endif()
+    file(ARCHIVE_EXTRACT INPUT "${FFMPEG_ARCHIVE}" DESTINATION "${FFMPEG_DIR}")
+endif()
+
+set(FFMPEG_STAGE "")
+foreach(_f ${FFMPEG_FILES})
+    if(NOT EXISTS "${FFMPEG_BIN}/${_f}")
+        message(FATAL_ERROR "ffmpeg bundle is missing ${_f} — delete "
+            "${FFMPEG_DIR} to re-fetch.")
+    endif()
+    list(APPEND FFMPEG_STAGE "${FFMPEG_BIN}/${_f}")
+endforeach()
+
 get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(QT_BIN_DIR "${_qmake}" DIRECTORY)
 find_program(WINDEPLOYQT_EXECUTABLE
@@ -20,6 +100,12 @@ add_custom_target(deploy ALL
     COMMAND "${WINDEPLOYQT_EXECUTABLE}"
         --no-translations --no-system-d3d-compiler --no-opengl-sw
         "${DIST_DIR}/bincue-studio.exe" "${DIST_DIR}/cdlabel.exe"
+    # Bundled cdrdao + ffmpeg + their GPL notices, next to the app so burning
+    # and audio decoding both work with nothing for the user to install.
+    COMMAND ${CMAKE_COMMAND} -E copy ${CDRDAO_STAGE} ${FFMPEG_STAGE} "${DIST_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_SOURCE_DIR}/installer/third-party/cdrdao-NOTICE.txt"
+        "${CMAKE_SOURCE_DIR}/installer/third-party/ffmpeg-NOTICE.txt" "${DIST_DIR}/"
     COMMENT "Deploying executables and Qt DLLs to dist/"
     VERBATIM)
 

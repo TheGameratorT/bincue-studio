@@ -170,10 +170,10 @@ and the headless (`--render`) mode for scripting label PNGs without the GUI.
 
 - **Windows** — grab `BinCueStudio-<version>-Setup.exe` from the
   [Releases page](https://github.com/TheGameratorT/bincue-studio/releases); it
-  installs both BinCue Studio and the CD Label Editor. ffmpeg is not bundled:
-  put `ffmpeg.exe`/`ffprobe.exe` on `PATH` or drop them next to
-  `bincue-studio.exe`. For burning, a local `cdrdao` is rare on Windows — a
-  remote (SSH) burner host is the realistic setup.
+  installs both BinCue Studio and the CD Label Editor and **bundles `cdrdao`,
+  `ffmpeg` and `ffprobe`**, so burning and audio decoding work out of the box —
+  nothing else to install. (Burning to a drive on another machine over SSH is
+  still available if you want it — see [Burning](#burning).)
 - **Arch Linux** — build the package in `packaging/aur/` (it links the shared
   [hostkit](https://github.com/TheGameratorT/hostkit) library).
 - **From source** — see below.
@@ -197,7 +197,8 @@ finds cdlabel at runtime (`CDLABEL_BIN` overrides the path; PATH is the fallback
 
 - **Qt 6** (Core / Gui / Widgets) and **CMake ≥ 3.21** to build.
 - At runtime: **ffmpeg** / **ffprobe** on `PATH` (audio decoding), and
-  **cdrdao** for burning.
+  **cdrdao** for burning. (The Windows installer bundles all three; from source,
+  or on Linux, install them yourself.)
 - **TagLib ≥ 2.0** is optional at build time — it enables tag import in
   bincue-studio and embedded cover-art extraction in cdlabel. Strongly
   recommended.
