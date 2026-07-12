@@ -31,9 +31,9 @@
 #include <QApplication>
 #include <QIcon>
 #include <QMessageBox>
-#include <QStandardPaths>
 
 #include "mainwindow.h"
+#include "toolpaths.h"
 
 int main(int argc, char *argv[])
 {
@@ -48,13 +48,14 @@ int main(int argc, char *argv[])
         QIcon::fromTheme(QStringLiteral("bincue-studio"),
                          QIcon(QStringLiteral(":/icons/bincue-studio.svg"))));
 
-    // Quick sanity check for ffmpeg/ffprobe before showing the window.
+    // Quick sanity check for ffmpeg/ffprobe before showing the window. Prefer
+    // the copy bundled next to the exe (Windows), then PATH (Linux/system).
     for (const char *tool : {"ffmpeg", "ffprobe"}) {
-        if (QStandardPaths::findExecutable(QLatin1String(tool)).isEmpty()) {
+        if (resolveMediaTool(QLatin1String(tool)).isEmpty()) {
             QMessageBox::critical(
                 nullptr, QObject::tr("Missing dependency"),
-                QObject::tr("'%1' was not found on PATH. Please install "
-                            "ffmpeg.")
+                QObject::tr("'%1' was not found next to the application or on "
+                            "PATH. Please install ffmpeg.")
                     .arg(QLatin1String(tool)));
             return 1;
         }

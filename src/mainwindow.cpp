@@ -42,6 +42,7 @@
 #include "burnjob.h"
 #include "exportworker.h"
 #include "tagreader.h"
+#include "toolpaths.h"
 
 #include <hostkit/HostSession.h>
 
@@ -75,7 +76,7 @@ bool probeDurationSeconds(const QString &path, double &outSeconds,
                           QString &error)
 {
     QProcess proc;
-    proc.start(QStringLiteral("ffprobe"),
+    proc.start(resolveMediaTool(QStringLiteral("ffprobe")),
                {QStringLiteral("-v"), QStringLiteral("error"),
                 QStringLiteral("-show_entries"),
                 QStringLiteral("format=duration"), QStringLiteral("-of"),

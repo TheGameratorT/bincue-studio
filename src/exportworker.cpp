@@ -1,4 +1,5 @@
 #include "exportworker.h"
+#include "toolpaths.h"
 
 #include <QDir>
 #include <QFile>
@@ -65,7 +66,7 @@ void ExportWorker::run()
                           .arg(QFileInfo(track.sourcePath).fileName()));
 
         QProcess proc;
-        proc.start(QStringLiteral("ffmpeg"),
+        proc.start(resolveMediaTool(QStringLiteral("ffmpeg")),
                    {QStringLiteral("-y"), QStringLiteral("-v"),
                     QStringLiteral("error"), QStringLiteral("-i"),
                     track.sourcePath, QStringLiteral("-ar"),

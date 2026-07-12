@@ -12,6 +12,7 @@ add_executable(bincue-studio
     track.cpp
     tagreader.cpp
     exportworker.cpp
+    toolpaths.cpp
     burncontroller.cpp
     burnjob.cpp
     burndialog.cpp
