@@ -1,8 +1,8 @@
 # BinCue Studio
 
-An **Audio CD (CD-DA) project suite** for Linux: assemble tracks into a
-Red Book-correct disc image, design a printable circular label, and burn to a
-local or remote CD writer — all from one Qt 6 / C++ application.
+An **Audio CD (CD-DA) project suite** for Linux and Windows: assemble tracks
+into a Red Book-correct disc image, design a printable circular label, and burn
+to a local or remote CD writer — all from one Qt 6 / C++ application.
 
 Two executables are built by one CMake project:
 
@@ -46,9 +46,10 @@ things that, as far as we can tell, none of them do:
   label from it — cover mosaics, feature-cover rings, curved track listings —
   with a live preview and reusable presets.
 
-And all of it native on Linux (Qt 6 / C++), where these pieces — image
-mastering, gap control, remote burning, label design — have never lived in one
-application.
+And all of it in one native Qt 6 / C++ application — pieces (image mastering,
+gap control, remote burning, label design) that on Linux have never lived
+together in one program. It runs on Windows too: every release ships an
+installer with both apps.
 
 ## Features
 
@@ -165,12 +166,29 @@ gradient **hub**, and a **metallic hub ring** hugging the centre hole.
 See [`cdlabel/README.md`](cdlabel/README.md) for the exhaustive per-knob reference
 and the headless (`--render`) mode for scripting label PNGs without the GUI.
 
+## Install
+
+- **Windows** — grab `BinCueStudio-<version>-Setup.exe` from the
+  [Releases page](https://github.com/TheGameratorT/bincue-studio/releases); it
+  installs both BinCue Studio and the CD Label Editor. ffmpeg is not bundled:
+  put `ffmpeg.exe`/`ffprobe.exe` on `PATH` or drop them next to
+  `bincue-studio.exe`. For burning, a local `cdrdao` is rare on Windows — a
+  remote (SSH) burner host is the realistic setup.
+- **Arch Linux** — build the package in `packaging/aur/` (it links the shared
+  [hostkit](https://github.com/TheGameratorT/hostkit) library).
+- **From source** — see below.
+
 ## Build
 
 ```sh
 cmake -B build
 cmake --build build
 ```
+
+[hostkit](https://github.com/TheGameratorT/hostkit) must either be checked out
+as a sibling directory (`../hostkit`, vendored automatically) or installed as a
+package (`-DBINCUE_USE_SYSTEM_HOSTKIT=ON`). For the Windows build and
+installer, see [`installer/README.md`](installer/README.md).
 
 Both executables land in `build/bin/`, side by side — that is how bincue-studio
 finds cdlabel at runtime (`CDLABEL_BIN` overrides the path; PATH is the fallback).
