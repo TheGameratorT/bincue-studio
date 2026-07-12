@@ -41,6 +41,19 @@ QString humanSize(quint64 n)
     return QStringLiteral("%1 %2").arg(v, 0, 'f', u ? 1 : 0).arg(unit[u]);
 }
 
+// The example device for the given host: a drive letter on local Windows, a
+// device node on Linux (a null/remote session is Linux — SSH hosts always are).
+QString deviceHint(const HostSession *session)
+{
+#ifdef Q_OS_WIN
+    if (session && !session->isRemote())
+        return QStringLiteral("D:");
+#else
+    Q_UNUSED(session);
+#endif
+    return QStringLiteral("/dev/sr0");
+}
+
 // Fill `list` with the host's optical drives only — burning to anything else
 // would destroy data, so non-optical block devices are never offered. The first
 // drive is preselected.
@@ -52,10 +65,12 @@ void populateDriveList(HostSession *session, QListWidget *list, QLabel *errorLab
     for (const DriveInfo &d : drives) {
         if (!d.isOptical())
             continue;
-        auto *it = new QListWidgetItem(
-            QStringLiteral("%1   %2   %3")
-                .arg(d.path, humanSize(d.size),
-                     d.model.isEmpty() ? QStringLiteral("(no model)") : d.model));
+        // No size on a Windows drive with an empty tray — skip the column.
+        QStringList cols{d.path};
+        if (d.size > 0)
+            cols << humanSize(d.size);
+        cols << (d.model.isEmpty() ? QStringLiteral("(no model)") : d.model);
+        auto *it = new QListWidgetItem(cols.join(QStringLiteral("   ")));
         it->setData(Qt::UserRole, d.path);
         list->addItem(it);
     }
@@ -66,13 +81,14 @@ void populateDriveList(HostSession *session, QListWidget *list, QLabel *errorLab
     errorLabel->setVisible(showHint);
     if (!err.isEmpty())
         errorLabel->setText(
-            QStringLiteral("<i>Could not list drives: %1 — enter the optical "
-                           "device path manually.</i>")
-                .arg(err.toHtmlEscaped()));
+            QStringLiteral("<i>Could not list drives: %1 — enter the device "
+                           "(e.g. %2) manually.</i>")
+                .arg(err.toHtmlEscaped(), deviceHint(session)));
     else if (list->count() == 0)
         errorLabel->setText(
-            QStringLiteral("<i>No optical drive found — enter the device path "
-                           "manually if you know it.</i>"));
+            QStringLiteral("<i>No optical drive found — enter the device "
+                           "(e.g. %1) manually if you know it.</i>")
+                .arg(deviceHint(session)));
 }
 
 } // namespace
@@ -130,7 +146,8 @@ BurnSetupDialog::BurnSetupDialog(QWidget *parent) : QDialog(parent)
 
     auto *form = new QFormLayout;
     m_deviceEdit = new QLineEdit(this);
-    m_deviceEdit->setPlaceholderText(QStringLiteral("/dev/sr0"));
+    // Placeholder tracks the selected host (drive letter vs device node);
+    // updatePreview() keeps it current.
     form->addRow(tr("Device:"), m_deviceEdit);
 
     m_speedSpin = new QSpinBox(this);
@@ -284,8 +301,9 @@ void BurnSetupDialog::reloadDrives()
 
 void BurnSetupDialog::updatePreview()
 {
-    const QString dev =
-        device().isEmpty() ? QStringLiteral("/dev/sr0") : device();
+    const QString hint = deviceHint(m_session.get());
+    m_deviceEdit->setPlaceholderText(hint);
+    const QString dev = device().isEmpty() ? hint : device();
     const QStringList args = BurnController::writeArgs(
         dev, userOptions(), QStringLiteral("album.toc"));
     QString cmd = QStringLiteral("cdrdao ") + args.join(QLatin1Char(' '));
