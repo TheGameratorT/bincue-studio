@@ -36,6 +36,7 @@
 #include "labelconfig.h"
 #include "labeldialog.h"
 #include "labelproject.h"
+#include "platformstyle.h"
 #include "render.h"
 
 namespace {
@@ -108,6 +109,7 @@ int main(int argc, char *argv[])
     }
 
     QApplication app(argc, argv);
+    applyPlatformStyle();  // Fusion on Windows 10 so dark mode is honoured.
     QApplication::setApplicationName(QStringLiteral("cdlabel"));
     QApplication::setApplicationVersion(QStringLiteral("2.0"));
 

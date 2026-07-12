@@ -29,6 +29,11 @@ add_executable(cdlabel
 
 target_link_libraries(cdlabel PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
 
+# Header-only helpers shared with bincue-studio (common/): platform style
+# selection and — when TagLib is present — Unicode-safe tag file opening.
+target_include_directories(cdlabel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+
 # GUI subsystem (no console window) and the embedded exe icon. Note this
 # silences --render's stdout progress on Windows; the PNG is still written.
 if(WIN32)
@@ -47,10 +52,6 @@ qt_add_resources(cdlabel "appicon"
 if(TAGLIB_FOUND)
     target_link_libraries(cdlabel PRIVATE PkgConfig::TAGLIB)
     target_compile_definitions(cdlabel PRIVATE HAVE_TAGLIB=1)
-    # Shared header-only helper for opening Unicode paths with TagLib (see
-    # common/taglibpath.h); the same file backs bincue-studio's tag reader.
-    target_include_directories(cdlabel PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../common)
     message(STATUS "TagLib found — embedded cover-art extraction enabled")
 else()
     message(WARNING "TagLib not found — only sidecar cover images will be used")

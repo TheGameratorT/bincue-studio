@@ -33,11 +33,13 @@
 #include <QMessageBox>
 
 #include "mainwindow.h"
+#include "platformstyle.h"
 #include "toolpaths.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    applyPlatformStyle();  // Fusion on Windows 10 so dark mode is honoured.
     QApplication::setOrganizationName(QStringLiteral("BinCue Studio"));
     QApplication::setApplicationName(QStringLiteral("BinCue Studio"));
     QApplication::setApplicationVersion(QStringLiteral(BINCUE_VERSION));

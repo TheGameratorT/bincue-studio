@@ -22,6 +22,11 @@ add_executable(bincue-studio
 target_link_libraries(bincue-studio PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets hostkit::hostkit)
 
+# Header-only helpers shared with cdlabel (common/): platform style selection
+# and — when TagLib is present — Unicode-safe tag file opening.
+target_include_directories(bincue-studio PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+
 # GUI subsystem (no console window) and the embedded exe icon.
 if(WIN32)
     set_target_properties(bincue-studio PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -54,10 +59,6 @@ qt_add_resources(bincue-studio "actionicons"
 if(TAGLIB_FOUND)
     target_link_libraries(bincue-studio PRIVATE PkgConfig::TAGLIB)
     target_compile_definitions(bincue-studio PRIVATE HAVE_TAGLIB=1)
-    # Shared header-only helper for opening Unicode paths with TagLib (see
-    # common/taglibpath.h); the same file backs cdlabel's cover extractor.
-    target_include_directories(bincue-studio PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../common)
     message(STATUS "TagLib found — tag import enabled in bincue-studio")
 else()
     message(WARNING "TagLib not found — tag import disabled in bincue-studio")
