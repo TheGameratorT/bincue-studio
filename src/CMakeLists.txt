@@ -21,6 +21,13 @@ add_executable(bincue-studio
 target_link_libraries(bincue-studio PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets hostkit::hostkit)
 
+# GUI subsystem (no console window) and the embedded exe icon.
+if(WIN32)
+    set_target_properties(bincue-studio PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(bincue-studio PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../packaging/bincue-studio.rc)
+endif()
+
 # Single source of truth for the version shown in the About dialog.
 target_compile_definitions(bincue-studio PRIVATE
     BINCUE_VERSION="${PROJECT_VERSION}")

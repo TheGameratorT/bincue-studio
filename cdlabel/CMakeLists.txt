@@ -29,6 +29,14 @@ add_executable(cdlabel
 
 target_link_libraries(cdlabel PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
 
+# GUI subsystem (no console window) and the embedded exe icon. Note this
+# silences --render's stdout progress on Windows; the PNG is still written.
+if(WIN32)
+    set_target_properties(cdlabel PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(cdlabel PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../packaging/cdlabel.rc)
+endif()
+
 # The desktop-entry icon, embedded so uninstalled builds have it too.
 # Rendering it needs Qt's SVG plugin at runtime (qt6-svg on Arch).
 qt_add_resources(cdlabel "appicon"

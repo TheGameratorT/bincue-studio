@@ -31,6 +31,12 @@ endif()
 add_subdirectory(src)      # the BinCue Studio application
 add_subdirectory(cdlabel)  # the CD label editor (also builds standalone)
 
+# Windows: `deploy` gathers both exes + runtime DLLs into build/dist,
+# `installer` packs dist into a QtIFW setup exe (see .github/workflows).
+if(WIN32)
+    include(installer/windows.cmake)
+endif()
+
 # Desktop integration: menu entries and icons for both executables. The
 # binary names match the .desktop basenames so Wayland/X11 associate windows
 # with the right icon without a StartupWMClass override.

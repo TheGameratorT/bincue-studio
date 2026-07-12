@@ -1,8 +1,6 @@
 # Maintainer: Tiago Silva <tiagolsilva14 at gmail dot com>
 #
 # Before first upload:
-#  - replace _repo_url with the real public repository URL, and fix _srcdir
-#    if the repository name differs from $pkgname
 #  - tag v$pkgver upstream, then run `updpkgsums` to fill sha256sums
 #  - regenerate .SRCINFO: makepkg --printsrcinfo > .SRCINFO
 pkgname=bincue-studio
@@ -10,7 +8,7 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="Audio CD authoring studio — assemble tracks, export BIN/CUE, burn, and design labels (includes cdlabel)"
 arch=('x86_64')
-_repo_url="https://github.com/YOURUSER/bincue-studio"
+_repo_url="https://github.com/TheGameratorT/bincue-studio"
 url="$_repo_url"
 license=('GPL-3.0-or-later')
 depends=('qt6-base' 'qt6-svg' 'hostkit' 'taglib' 'ffmpeg')
