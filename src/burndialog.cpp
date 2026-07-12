@@ -352,7 +352,8 @@ BurnProgressDialog::BurnProgressDialog(BurnJob *job, QWidget *parent)
         if (QMessageBox::question(
                 this, tr("Stop the burn?"),
                 tr("Stopping now aborts cdrdao. If it is already writing, the "
-                   "disc will be unusable. Stop anyway?"))
+                   "disc will be unusable. Stop anyway?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
             == QMessageBox::Yes) {
             m_stopBtn->setEnabled(false);
             m_job->stop();
@@ -410,7 +411,8 @@ void BurnProgressDialog::closeEvent(QCloseEvent *event)
     if (QMessageBox::question(
             this, tr("Stop the burn?"),
             tr("A burn is still in progress. Stopping now aborts cdrdao and may "
-               "ruin the disc. Stop and close?"))
+               "ruin the disc. Stop and close?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
         == QMessageBox::Yes) {
         m_job->stop();
         event->ignore();  // wait for finished() before the dialog closes
