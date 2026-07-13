@@ -223,18 +223,32 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
     if (!catalog.isEmpty())
         out << QStringLiteral("CATALOG %1").arg(q(catalog));
 
+    // cdrdao's checkCdTextData() requires each CD-Text pack type to appear
+    // exactly nofTracks+1 times (once per track AND once for the disc); a field
+    // present on only some tracks makes the TOC "not suitable for this drive".
+    // On top of that, once any CD-Text language block exists at all, TITLE and
+    // PERFORMER are mandatory (a count of 0 is itself an error) while the rest
+    // are optional. So: decide whether we're writing CD-Text, and if so always
+    // emit TITLE and PERFORMER on the disc and every track, plus SONGWRITER only
+    // when it's in play, filling every gap below with an empty string.
+    bool anyTrackText = false, anyTrackSongwriter = false;
+    for (const TocEntry &e : entries) {
+        anyTrackText |= !e.title.isEmpty() || !e.performer.isEmpty();
+        anyTrackSongwriter |= !e.songwriter.isEmpty();
+    }
+    const bool useSongwriter =
+        !m_params.albumSongwriter.isEmpty() || anyTrackSongwriter;
+    const bool haveCdText = !m_params.albumTitle.isEmpty()
+        || !m_params.albumPerformer.isEmpty() || anyTrackText || useSongwriter;
+
     // Disc-wide CD-Text from the album fields, mirroring the cue's header.
-    if (!m_params.albumTitle.isEmpty() || !m_params.albumPerformer.isEmpty()
-        || !m_params.albumSongwriter.isEmpty()) {
+    if (haveCdText) {
         out << QStringLiteral("CD_TEXT {");
         out << QStringLiteral("  LANGUAGE_MAP { 0 : EN }");
         out << QStringLiteral("  LANGUAGE 0 {");
-        if (!m_params.albumTitle.isEmpty())
-            out << QStringLiteral("    TITLE %1").arg(q(m_params.albumTitle));
-        if (!m_params.albumPerformer.isEmpty())
-            out << QStringLiteral("    PERFORMER %1")
-                       .arg(q(m_params.albumPerformer));
-        if (!m_params.albumSongwriter.isEmpty())
+        out << QStringLiteral("    TITLE %1").arg(q(m_params.albumTitle));
+        out << QStringLiteral("    PERFORMER %1").arg(q(m_params.albumPerformer));
+        if (useSongwriter)
             out << QStringLiteral("    SONGWRITER %1")
                        .arg(q(m_params.albumSongwriter));
         out << QStringLiteral("  }");
@@ -255,22 +269,33 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
         // cdrdao's grammar fixes the order of a track's modifiers: ISRC first,
         // then CD_TEXT, and only after that the data statements (PREGAP / FILE /
         // START). Emitting CD_TEXT before ISRC is a syntax error.
+        // Subchannel ISRC is genuinely per-track optional (no all-or-nothing
+        // rule, unlike the CD-Text packs above), so emit whichever tracks have
+        // one. It can't be blank-filled anyway: cdrdao validates it as an exact
+        // 12-char code, so an empty ISRC would be rejected outright.
         if (!e.isrc.isEmpty())
             out << QStringLiteral("ISRC %1").arg(q(e.isrc));
 
-        if (!e.title.isEmpty() || !e.performer.isEmpty()
-            || !e.songwriter.isEmpty()) {
+        // The same field set must appear on every track. Performer and
+        // songwriter fall back to the album value (a track is by the album
+        // artist unless it says otherwise); a missing title falls back to an
+        // empty string rather than the album title, which isn't a track name.
+        if (haveCdText) {
             out << QStringLiteral("CD_TEXT {");
             out << QStringLiteral("  LANGUAGE 0 {");
-            if (!e.title.isEmpty())
-                out << QStringLiteral("    TITLE %1").arg(q(e.title));
-            if (!e.performer.isEmpty())
-                out << QStringLiteral("    PERFORMER %1").arg(q(e.performer));
-            if (!e.songwriter.isEmpty())
-                out << QStringLiteral("    SONGWRITER %1").arg(q(e.songwriter));
+            out << QStringLiteral("    TITLE %1").arg(q(e.title));
+            out << QStringLiteral("    PERFORMER %1")
+                       .arg(q(e.performer.isEmpty() ? m_params.albumPerformer
+                                                    : e.performer));
+            if (useSongwriter)
+                out << QStringLiteral("    SONGWRITER %1")
+                           .arg(q(e.songwriter.isEmpty() ? m_params.albumSongwriter
+                                                         : e.songwriter));
             out << QStringLiteral("  }");
             out << QStringLiteral("}");
         }
+        // (COMPOSER/ARRANGER/MESSAGE are never emitted, so they stay at count 0
+        // and cdrdao's all-or-nothing check leaves them alone.)
 
         if (i == 0 && pregapFrames > 0)
             out << QStringLiteral("PREGAP %1").arg(framesToTimestamp(pregapFrames));
