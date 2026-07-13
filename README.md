@@ -27,6 +27,7 @@ things that, as far as we can tell, none of them do:
   and written there with `cdrdao`, with the live burn log streamed back. The
   only prior art is CLI plumbing (cdrtools' long-dead `rscsi`, or hand-piping
   images over ssh) — no burning application has offered it as a feature.
+  Host setup guide: [`docs/remote-burning.md`](docs/remote-burning.md).
 - **Gap reconciliation, not just gap setting.** Most burners let you choose the
   pause appended between tracks; none of them account for silence *already
   baked into* the files. Rips and downloads often carry a second or two of

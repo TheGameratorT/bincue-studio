@@ -73,6 +73,9 @@ private:
     QString m_localBin;
     QString m_localToc;
     QString m_remoteDir;
+    // cdrdao's invocation name; replaced with a resolved full path for hosts
+    // that don't have it on the SSH session's PATH (Windows remotes).
+    QString m_cdrdao = QStringLiteral("cdrdao");
 
     ExportWorker *m_export = nullptr;
     BurnController *m_burn = nullptr;

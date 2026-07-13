@@ -126,6 +126,19 @@ void BurnJob::prepareRemoteThenBurn()
     const QString dest = m_session->destination();
     emit phase(tr("Preparing %1…").arg(dest));
 
+    // Locate cdrdao before spending time on the upload. Posix hosts resolve
+    // the bare name on PATH; Windows hosts check the install dir the
+    // installer records in BINCUE_STUDIO_HOME, then fall back to where.exe.
+    QString toolErr;
+    m_cdrdao = m_session->resolveRemoteTool(
+        QStringLiteral("cdrdao"), {QStringLiteral("$env:BINCUE_STUDIO_HOME")},
+        &toolErr);
+    if (m_cdrdao.isEmpty()) {
+        finishWith(false,
+                   tr("cdrdao is not available on %1: %2").arg(dest, toolErr));
+        return;
+    }
+
     QString err;
     m_remoteDir = m_session->makeTempDir(QStringLiteral("bincue-burn"), &err);
     if (m_remoteDir.isEmpty()) {
@@ -133,6 +146,10 @@ void BurnJob::prepareRemoteThenBurn()
                               .arg(dest, err));
         return;
     }
+    // A Windows host answers with a backslashed path; flip to forward slashes,
+    // which Win32 and PowerShell accept everywhere while staying literal inside
+    // the TOC's quoted FILE string (backslash is its escape character there).
+    m_remoteDir.replace(QLatin1Char('\\'), QLatin1Char('/'));
 
     const QString remoteBin = m_remoteDir + QStringLiteral("/image.bin");
     const QString remoteToc = m_remoteDir + QStringLiteral("/burn.toc");
@@ -180,7 +197,7 @@ void BurnJob::startBurn(const QString &tocPath)
     }
 
     emit phase(tr("Burning on %1…").arg(m_session->label()));
-    m_burn = new BurnController(this);
+    m_burn = new BurnController(m_cdrdao, this);
     connect(m_burn, &BurnController::outputChunk, this,
             [this](const QByteArray &raw) { emit log(raw); });
     connect(m_burn, &BurnController::progressChanged, this, [this] {

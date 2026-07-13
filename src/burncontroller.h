@@ -13,7 +13,10 @@ class BurnController : public hostkit::HostProcess
 {
     Q_OBJECT
 public:
-    explicit BurnController(QObject *parent = nullptr);
+    // `program` is cdrdao's invocation name; pass a resolved full path when
+    // the host won't find it on the SSH session's PATH (Windows remotes).
+    explicit BurnController(const QString &program = QStringLiteral("cdrdao"),
+                            QObject *parent = nullptr);
 
     struct Progress {
         bool valid = false;

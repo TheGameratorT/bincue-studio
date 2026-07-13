@@ -2,8 +2,8 @@
 
 #include <QRegularExpression>
 
-BurnController::BurnController(QObject *parent)
-    : hostkit::HostProcess(QStringLiteral("cdrdao"), parent)
+BurnController::BurnController(const QString &program, QObject *parent)
+    : hostkit::HostProcess(program, parent)
 {
 }
 
