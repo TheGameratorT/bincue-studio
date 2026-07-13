@@ -1,5 +1,6 @@
 #include "labelconfig.h"
 
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonValue>
 
@@ -59,6 +60,10 @@ QJsonObject LabelConfig::toJson() const
 #define WRITE_FIELD(type, member, key, def) obj.insert(QStringLiteral(key), toJsonValue(member));
     LABEL_CONFIG_FIELDS(WRITE_FIELD)
 #undef WRITE_FIELD
+    // Remembered file paths are stored with forward slashes so presets stay
+    // portable across OSes (no-op on Unix; rewrites Windows backslashes).
+    obj.insert(QStringLiteral("bg_image_path"),
+               QDir::fromNativeSeparators(bgImagePath));
     return obj;
 }
 

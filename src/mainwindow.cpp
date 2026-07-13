@@ -518,7 +518,8 @@ QStringList MainWindow::recentFiles() const
 
 void MainWindow::addRecentFile(const QString &path)
 {
-    const QString absolute = QFileInfo(path).absoluteFilePath();
+    const QString absolute =
+        QDir::fromNativeSeparators(QFileInfo(path).absoluteFilePath());
     QStringList files = recentFiles();
     files.removeAll(absolute);
     files.prepend(absolute);

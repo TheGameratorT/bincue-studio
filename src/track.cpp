@@ -1,5 +1,7 @@
 #include "track.h"
 
+#include <QDir>
+
 qint64 Track::frames() const
 {
     return redbook::secondsToFrames(durationSeconds);
@@ -8,7 +10,9 @@ qint64 Track::frames() const
 QJsonObject Track::toJson() const
 {
     QJsonObject o;
-    o[QStringLiteral("source_path")] = sourcePath;
+    // Store paths with forward slashes so projects are portable across OSes
+    // (a no-op on Unix; rewrites Windows backslashes).
+    o[QStringLiteral("source_path")] = QDir::fromNativeSeparators(sourcePath);
     o[QStringLiteral("title")] = title;
     o[QStringLiteral("performer")] = performer;
     o[QStringLiteral("songwriter")] = songwriter;

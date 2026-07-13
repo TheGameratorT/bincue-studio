@@ -2,6 +2,7 @@
 
 #include "covers.h"
 
+#include <QDir>
 #include <QFile>
 #include <QHash>
 #include <QJsonArray>
@@ -19,7 +20,9 @@ QJsonObject labelProjectToJson(const LabelProject &proj)
     for (const LabelTrack &t : proj.tracks) {
         QJsonObject to;
         to.insert(QStringLiteral("name"), t.name);
-        to.insert(QStringLiteral("source_path"), t.sourcePath);
+        // Forward slashes keep saved projects portable across OSes.
+        to.insert(QStringLiteral("source_path"),
+                  QDir::fromNativeSeparators(t.sourcePath));
         to.insert(QStringLiteral("display_name"), t.displayName);
         to.insert(QStringLiteral("show_name"), t.showName);
         to.insert(QStringLiteral("show_cover"), t.showCover);
