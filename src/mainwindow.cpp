@@ -16,6 +16,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QKeySequence>
@@ -28,6 +29,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSlider>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyle>
@@ -42,6 +44,7 @@
 #include "burndialog.h"
 #include "burnjob.h"
 #include "exportworker.h"
+#include "playbackengine.h"
 #include "tagreader.h"
 #include "toolpaths.h"
 #include "trackdetailsdialog.h"
@@ -71,6 +74,15 @@ QIcon themedIcon(const char *name, QStyle::StandardPixmap fallback)
 {
     const QIcon icon = QIcon::fromTheme(QLatin1String(name));
     return icon.isNull() ? qApp->style()->standardIcon(fallback) : icon;
+}
+
+// mm:ss for the player's position/total time labels.
+QString formatClock(qint64 ms)
+{
+    const qint64 s = ms / 1000;
+    return QStringLiteral("%1:%2")
+        .arg(s / 60, 2, 10, QLatin1Char('0'))
+        .arg(s % 60, 2, 10, QLatin1Char('0'));
 }
 
 bool probeDurationSeconds(const QString &path, double &outSeconds,
@@ -486,6 +498,141 @@ void MainWindow::buildUi()
     connect(m_table, &QTableWidget::itemChanged, this,
             &MainWindow::onItemChanged);
     root->addWidget(m_table, 1);
+
+    // Preview player: hear the assembled program — every track, with the exact
+    // inter-track gaps, seamlessly — before committing it to a disc.
+    m_player = new PlaybackEngine(this);
+
+    auto *playerBar = new QFrame;
+    playerBar->setFrameShape(QFrame::StyledPanel);
+    auto *playerRow = new QHBoxLayout(playerBar);
+    playerRow->setContentsMargins(8, 4, 8, 4);
+    playerRow->setSpacing(6);
+
+    auto *style = qApp->style();
+    m_prevBtn = new QToolButton;
+    m_prevBtn->setAutoRaise(true);
+    m_prevBtn->setIcon(themedIcon("media-skip-backward",
+                                  QStyle::SP_MediaSkipBackward));
+    m_prevBtn->setToolTip(tr("Previous track"));
+    m_playPauseBtn = new QToolButton;
+    m_playPauseBtn->setAutoRaise(true);
+    m_playPauseBtn->setIcon(style->standardIcon(QStyle::SP_MediaPlay));
+    m_playPauseBtn->setToolTip(tr("Play / Pause"));
+    m_stopBtn = new QToolButton;
+    m_stopBtn->setAutoRaise(true);
+    m_stopBtn->setIcon(style->standardIcon(QStyle::SP_MediaStop));
+    m_stopBtn->setToolTip(tr("Stop"));
+    m_nextBtn = new QToolButton;
+    m_nextBtn->setAutoRaise(true);
+    m_nextBtn->setIcon(themedIcon("media-skip-forward",
+                                  QStyle::SP_MediaSkipForward));
+    m_nextBtn->setToolTip(tr("Next track"));
+
+    m_posLabel = new QLabel(formatClock(0));
+    m_posLabel->setToolTip(tr("Elapsed"));
+    m_seekSlider = new QSlider(Qt::Horizontal);
+    m_seekSlider->setRange(0, 0);
+    m_totalLabel = new QLabel(formatClock(0));
+    m_totalLabel->setToolTip(tr("Total program length"));
+    m_nowPlayingLabel = new QLabel;
+    m_nowPlayingLabel->setMinimumWidth(160);
+    m_nowPlayingLabel->setTextFormat(Qt::PlainText);
+
+    playerRow->addWidget(m_prevBtn);
+    playerRow->addWidget(m_playPauseBtn);
+    playerRow->addWidget(m_stopBtn);
+    playerRow->addWidget(m_nextBtn);
+    playerRow->addSpacing(6);
+    playerRow->addWidget(m_posLabel);
+    playerRow->addWidget(m_seekSlider, 1);
+    playerRow->addWidget(m_totalLabel);
+    playerRow->addSpacing(8);
+    playerRow->addWidget(m_nowPlayingLabel);
+    root->addWidget(playerBar);
+
+    // Transport.
+    connect(m_playPauseBtn, &QToolButton::clicked, m_player,
+            &PlaybackEngine::togglePlayPause);
+    connect(m_stopBtn, &QToolButton::clicked, m_player, &PlaybackEngine::stop);
+    connect(m_prevBtn, &QToolButton::clicked, this, [this] {
+        m_player->seekToTrack(qMax(0, m_player->currentTrack() - 1));
+        if (m_player->state() != PlaybackEngine::State::Playing)
+            m_player->play();
+    });
+    connect(m_nextBtn, &QToolButton::clicked, this, [this] {
+        const int next = m_player->currentTrack() + 1;
+        if (next < m_player->trackCount()) {
+            m_player->seekToTrack(next);
+            if (m_player->state() != PlaybackEngine::State::Playing)
+                m_player->play();
+        }
+    });
+
+    // Start playback at the double-clicked track.
+    connect(m_table, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int) {
+                m_player->seekToTrack(row);
+                if (m_player->state() != PlaybackEngine::State::Playing)
+                    m_player->play();
+            });
+    // While stopped, selecting a row arms Play to begin there.
+    connect(m_table->selectionModel(), &QItemSelectionModel::currentRowChanged,
+            this, [this](const QModelIndex &current) {
+                if (current.isValid()
+                    && m_player->state() == PlaybackEngine::State::Stopped)
+                    m_player->setStartTrack(current.row());
+            });
+
+    // Seek slider: freeze the auto-updates while the user drags, commit on
+    // release.
+    connect(m_seekSlider, &QSlider::sliderPressed, this,
+            [this] { m_sliderHeld = true; });
+    connect(m_seekSlider, &QSlider::sliderMoved, this, [this](int value) {
+        m_posLabel->setText(formatClock(value));
+    });
+    connect(m_seekSlider, &QSlider::sliderReleased, this, [this] {
+        m_sliderHeld = false;
+        m_player->seek(m_seekSlider->value());
+    });
+
+    // Engine → UI.
+    connect(m_player, &PlaybackEngine::stateChanged, this,
+            [this](PlaybackEngine::State state) {
+                const bool playing = state == PlaybackEngine::State::Playing;
+                m_playPauseBtn->setIcon(qApp->style()->standardIcon(
+                    playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+                m_stopBtn->setEnabled(state != PlaybackEngine::State::Stopped);
+            });
+    connect(m_player, &PlaybackEngine::positionChanged, this,
+            [this](qint64 pos, qint64 total) {
+                if (!m_sliderHeld) {
+                    m_seekSlider->setRange(0, int(total));
+                    m_seekSlider->setValue(int(pos));
+                    m_posLabel->setText(formatClock(pos));
+                }
+                m_totalLabel->setText(formatClock(total));
+            });
+    connect(m_player, &PlaybackEngine::currentTrackChanged, this,
+            [this](int index) {
+                if (index < 0 || index >= m_tracks.size()) {
+                    m_nowPlayingLabel->clear();
+                    return;
+                }
+                const Track &t = m_tracks[index];
+                QString text = QStringLiteral("%1. %2")
+                                   .arg(index + 1)
+                                   .arg(t.title.isEmpty()
+                                            ? tr("(untitled)")
+                                            : t.title);
+                if (!t.performer.isEmpty())
+                    text += QStringLiteral(" — %1").arg(t.performer);
+                m_nowPlayingLabel->setText(text);
+            });
+    connect(m_player, &PlaybackEngine::errorOccurred, this,
+            [this](const QString &message) {
+                QMessageBox::warning(this, tr("Playback"), message);
+            });
 
     // Bottom strip: capacity meter on the left, primary actions on the right.
     auto *bottomRow = new QHBoxLayout;
@@ -966,6 +1113,24 @@ void MainWindow::updateCapacity()
 
     m_statsLabel->setText(tr("%n track(s) · %1", nullptr, int(m_tracks.size()))
                               .arg(redbook::secondsToMmss(usedSeconds)));
+
+    syncPlayerProgram();
+}
+
+// Hand the current track order and gap to the preview player. Called from
+// updateCapacity, the one place every audio-relevant change funnels through
+// (add/remove/reorder/re-import a track, or edit a gap). Resets playback, so
+// title/performer edits — which don't reach here — don't interrupt a preview.
+void MainWindow::syncPlayerProgram()
+{
+    if (!m_player)
+        return;
+    m_player->setProgram(m_tracks, m_gapSpin->value());
+    const bool has = !m_tracks.isEmpty();
+    m_playPauseBtn->setEnabled(has);
+    m_prevBtn->setEnabled(has);
+    m_nextBtn->setEnabled(has);
+    m_seekSlider->setEnabled(has);
 }
 
 // -- Project save/load ---------------------------------------------------------------

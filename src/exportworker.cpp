@@ -1,10 +1,9 @@
 #include "exportworker.h"
-#include "toolpaths.h"
+#include "programaudio.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QProcess>
 #include <QTemporaryDir>
 
 using namespace redbook;
@@ -65,46 +64,15 @@ void ExportWorker::run()
                       tr("Encoding: %1")
                           .arg(QFileInfo(track.sourcePath).fileName()));
 
-        QProcess proc;
-        proc.start(resolveMediaTool(QStringLiteral("ffmpeg")),
-                   {QStringLiteral("-y"), QStringLiteral("-v"),
-                    QStringLiteral("error"), QStringLiteral("-i"),
-                    track.sourcePath, QStringLiteral("-ar"),
-                    QStringLiteral("44100"), QStringLiteral("-ac"),
-                    QStringLiteral("2"), QStringLiteral("-f"),
-                    QStringLiteral("s16le"), QStringLiteral("-acodec"),
-                    QStringLiteral("pcm_s16le"), QStringLiteral("-")});
-        proc.closeWriteChannel();
-        if (!proc.waitForFinished(-1)
-            || proc.exitStatus() != QProcess::NormalExit
-            || proc.exitCode() != 0) {
-            QString error = QString::fromUtf8(proc.readAllStandardError());
-            if (error.trimmed().isEmpty())
-                error = proc.errorString();
-            emit failed(tr("ffmpeg failed:\n%1").arg(error));
+        QString decodeError;
+        QByteArray pcm = programaudio::decode(track.sourcePath, &decodeError);
+        if (!decodeError.isEmpty()) {
+            emit failed(tr("ffmpeg failed:\n%1").arg(decodeError));
             return;
         }
-        QByteArray pcm = proc.readAllStandardOutput();
-
-        // Align the decoded audio to a whole CD sector, then trim or fill its
-        // baked-in trailing silence so the actual gap after this track equals
-        // the inter-track gap (0 after the last).
-        const qsizetype remainder = pcm.size() % BYTES_PER_FRAME;
-        if (remainder)
-            pcm.append(BYTES_PER_FRAME - remainder, '\0');
-
-        const qint64 desiredGap = isLast ? 0 : gapFrames;
-        const qint64 bakedFrames = secondsToFrames(track.bakedInGap);
-        const qint64 delta = desiredGap - bakedFrames;
-        if (delta < 0) {
-            // Trim excess trailing silence (never past the start).
-            const qint64 trim =
-                qMin(-delta, qint64(pcm.size()) / BYTES_PER_FRAME);
-            pcm.chop(trim * BYTES_PER_FRAME);
-        } else if (delta > 0) {
-            // Pad with silence up to the target gap.
-            pcm.append(delta * BYTES_PER_FRAME, '\0');
-        }
+        // Sector-align and normalise the trailing gap. Identical to what the
+        // preview player streams, so the burned image matches the preview.
+        pcm = programaudio::fitGap(pcm, track, isLast, gapFrames);
 
         cue << QStringLiteral("  TRACK %1 AUDIO")
                    .arg(trackNum, 2, 10, QLatin1Char('0'));

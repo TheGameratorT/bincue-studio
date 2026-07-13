@@ -11,7 +11,10 @@ add_executable(bincue-studio
     redbook.cpp
     track.cpp
     tagreader.cpp
+    programaudio.cpp
     exportworker.cpp
+    playbackengine.cpp
+    miniaudio.cpp
     toolpaths.cpp
     burncontroller.cpp
     burnjob.cpp
@@ -20,8 +23,17 @@ add_executable(bincue-studio
     mainwindow.cpp
 )
 
+# miniaudio is a single-header library: miniaudio.cpp is the one TU that builds
+# its implementation, everyone else just includes the declarations. It dlopen's
+# the OS audio backend (ALSA/PulseAudio/WASAPI…) at runtime, so the only link
+# deps are threads + libdl, and no packaging dependency is added.
+find_package(Threads REQUIRED)
+target_include_directories(bincue-studio PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/miniaudio)
+
 target_link_libraries(bincue-studio PRIVATE
-    Qt6::Core Qt6::Gui Qt6::Widgets hostkit::hostkit)
+    Qt6::Core Qt6::Gui Qt6::Widgets hostkit::hostkit
+    Threads::Threads ${CMAKE_DL_LIBS})
 
 # Header-only helpers shared with cdlabel (common/): platform style selection
 # and — when TagLib is present — Unicode-safe tag file opening.

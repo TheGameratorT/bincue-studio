@@ -8,6 +8,7 @@
 #include "track.h"
 
 class ExportWorker;
+class PlaybackEngine;
 class QAction;
 class QCloseEvent;
 class QComboBox;
@@ -17,6 +18,7 @@ class QLineEdit;
 class QMenu;
 class QProgressBar;
 class QPushButton;
+class QSlider;
 class QTableWidget;
 class QTableWidgetItem;
 class QToolButton;
@@ -51,6 +53,7 @@ private:
     void refreshTable();
     QList<int> selectedRows() const;
     void setExportEnabled(bool enabled);
+    void syncPlayerProgram();
 
     // actions
     void newProject();
@@ -111,4 +114,17 @@ private:
     QLabel *m_capacityLabel = nullptr;
     QLabel *m_statsLabel = nullptr;
     QPushButton *m_exportBtn = nullptr;
+
+    // Preview player: streams the assembled program (gaps and all) below the
+    // table so you can hear the disc before burning it.
+    PlaybackEngine *m_player = nullptr;
+    QToolButton *m_playPauseBtn = nullptr;
+    QToolButton *m_stopBtn = nullptr;
+    QToolButton *m_prevBtn = nullptr;
+    QToolButton *m_nextBtn = nullptr;
+    QSlider *m_seekSlider = nullptr;
+    QLabel *m_posLabel = nullptr;
+    QLabel *m_totalLabel = nullptr;
+    QLabel *m_nowPlayingLabel = nullptr;
+    bool m_sliderHeld = false;
 };
