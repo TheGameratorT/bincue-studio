@@ -66,14 +66,61 @@ burn ends, so the host needs free space for one disc image (up to ~800 MB).
 
 ## Windows host
 
+> ⚠️ **Untested, unsupported, and frankly a mistake.** Let me be blunt: I
+> hate developing for Windows. Wiring up Windows as a burning *host* was a
+> miserable slog that ate a disproportionate chunk of this project's
+> development time and gave almost nothing back. It has **never** been verified
+> end-to-end on real hardware, and the platform fights you the whole way — for
+> example, there is no reliable way to interrupt cdrdao, because Windows'
+> ConPTY won't dependably deliver a ^C to a process that isn't sitting there
+> reading its console. So on Windows, **Stop just hard-kills the process.** A
+> burn can't be resumed anyway, so a cancelled disc is ruined no matter how
+> politely you ask cdrdao to quit — there is no point pretending otherwise.
+>
+> You don't have to take my word for any of this. Just scroll up and compare:
+> the **Linux host** section is a handful of one-line commands from packages
+> your distro already ships. The Windows section below is a self-elevating
+> PowerShell script, a shared-vs-per-user key-file quirk, an `icacls`
+> permission dance, and a pile of caveats — for the *same* end result. The
+> difference in length and pain is the whole argument, and it makes itself.
+>
+> If you have any choice at all, **burn from a Linux host** (above). That is the
+> path that actually works and actually gets tested. Everything below is
+> best-effort, offered without warranty, and may simply not work.
+
+The bundled setup script does all of the host-side work; the manual steps
+underneath spell out exactly what it does for anyone who prefers to run them by
+hand.
+
 1. **Install BinCue Studio on the host** with the regular Windows installer.
    It bundles `cdrdao.exe`, so there is nothing else to install — the
    installer records the install directory in the `BINCUE_STUDIO_HOME`
-   environment variable, which is how the client finds cdrdao. (For an
-   install made with an older installer, either reinstall or add the
-   install directory to the account's PATH.)
+   environment variable, which is how the client finds cdrdao. It also drops
+   `bincue-host-setup.ps1` next to the executables. (For an install made with
+   an older installer, either reinstall or add the install directory to the
+   account's PATH.)
 
-2. **Enable the OpenSSH Server** (a built-in Windows optional feature). In an
+2. **Run the setup script on the host.** It enables the OpenSSH Server,
+   installs your client's public key, and applies the file permissions OpenSSH
+   requires — all host-side, so it makes no difference whether you burn *from*
+   Linux or Windows. In any PowerShell (it self-elevates to administrator):
+
+   ```powershell
+   cd "$env:BINCUE_STUDIO_HOME"
+   .\bincue-host-setup.ps1 -PublicKey "ssh-ed25519 AAAA... you@client"
+   ```
+
+   Pass your client's public key as the argument, or omit it and the script
+   prompts. To read the key on the *client* machine: `cat ~/.ssh/id_ed25519.pub`
+   on Linux, or `type $env:USERPROFILE\.ssh\id_ed25519.pub` in a Windows
+   PowerShell. The script prints a login test command when it finishes; skip to
+   *Test* below.
+
+### Manual setup
+
+Everything the script does, by hand.
+
+1. **Enable the OpenSSH Server** (a built-in Windows optional feature). In an
    *administrator* PowerShell:
 
    ```powershell
@@ -87,16 +134,24 @@ burn ends, so the host needs free space for one disc image (up to ~800 MB).
    created automatically. The account's default SSH shell doesn't matter —
    the app invokes PowerShell explicitly.
 
-3. **Set up key authentication.** Windows has no `ssh-copy-id`, and there is a
+2. **Set up key authentication.** Windows has no `ssh-copy-id`, and there is a
    quirk: for accounts in the Administrators group (most personal machines),
    OpenSSH reads keys from a shared system file instead of the user profile.
 
-   *Administrator accounts* — from your client machine (this one prompts for
-   the Windows password; that's fine in a terminal, only the app itself can't
-   answer prompts):
+   *Administrator accounts* — append your public key from the client machine.
+   This prompts for the Windows password; that's fine in a terminal, only the
+   app itself can't answer prompts. **From a Linux client:**
 
    ```sh
    cat ~/.ssh/id_ed25519.pub | ssh user@winhost 'powershell -NoProfile -Command "[Console]::In.ReadToEnd() | Add-Content -Force -Path C:\ProgramData\ssh\administrators_authorized_keys"'
+   ```
+
+   **From a Windows client** (PowerShell — note the `\"` escaping needed to
+   pass the inner quotes through to the host, which is exactly the fiddliness
+   the setup script exists to avoid):
+
+   ```powershell
+   Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh user@winhost "powershell -NoProfile -Command \"[Console]::In.ReadToEnd() | Add-Content -Force -Path C:\ProgramData\ssh\administrators_authorized_keys\""
    ```
 
    then, once, in an administrator PowerShell on the host (OpenSSH refuses
@@ -111,12 +166,14 @@ burn ends, so the host needs free space for one disc image (up to ~800 MB).
    raw disc writing may require administrator rights, so an admin account is
    the safe choice for a burning host.
 
-4. **Test.** From the client machine (should print your burner without asking
-   for a password):
+### Test
 
-   ```sh
-   ssh user@winhost "powershell -NoProfile -Command Get-CimInstance Win32_CDROMDrive"
-   ```
+From the client machine (should print your burner without asking for a
+password):
+
+```sh
+ssh user@winhost "powershell -NoProfile -Command Get-CimInstance Win32_CDROMDrive"
+```
 
 ## Troubleshooting
 
@@ -124,8 +181,7 @@ burn ends, so the host needs free space for one disc image (up to ~800 MB).
   the terminal is falling back to a password prompt, which the app cannot do.
   Verify `ssh -o BatchMode=yes <host> true` succeeds.
 - **Connects but no drives are listed** — Linux: check the group membership in
-  step 4 and reconnect; Windows: confirm the test command in step 4 prints the
-  drive.
+  step 4 and reconnect; Windows: confirm the *Test* command prints the drive.
 - **Windows key refused for an admin account** — the key must be in
   `administrators_authorized_keys` (not the user profile) *and* the `icacls`
   permission fix must have been applied.

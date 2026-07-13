@@ -223,7 +223,18 @@ void BurnJob::onBurnFinished(bool ok, const QString &summary)
 void BurnJob::stop()
 {
     m_cancelled = true;
-    if (m_burn && m_burn->isRunning())
+    if (!(m_burn && m_burn->isRunning()))
+        return;
+    // A burn can't be rescued: interrupting cdrdao mid-write ruins the disc
+    // whether we ask nicely or not. On a Windows host the "graceful" path is a
+    // ^C forwarded over ConPTY, which is unreliable against a process that
+    // isn't reading its console (cdrdao) and can leave the user unable to stop
+    // at all (see docs/remote-burning.md). Since the outcome is a dead disc
+    // either way, skip the pleasantries and hard-kill the process tree.
+    if (m_session && m_session->isRemote()
+        && m_session->hostOs() == hostkit::HostOs::Windows)
+        m_burn->forceKill();
+    else
         m_burn->stopGracefully();
 }
 

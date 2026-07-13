@@ -106,6 +106,11 @@ add_custom_target(deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_SOURCE_DIR}/installer/third-party/cdrdao-NOTICE.txt"
         "${CMAKE_SOURCE_DIR}/installer/third-party/ffmpeg-NOTICE.txt" "${DIST_DIR}/"
+    # Host-setup helper for turning this machine into a remote burning host
+    # (see docs/remote-burning.md); dropped next to the exes so it is one
+    # `cd "$env:BINCUE_STUDIO_HOME"` away.
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_SOURCE_DIR}/packaging/bincue-host-setup.ps1" "${DIST_DIR}/"
     COMMENT "Deploying executables and Qt DLLs to dist/"
     VERBATIM)
 
