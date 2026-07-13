@@ -2,8 +2,6 @@
 
 #include "redbook.h"
 
-#include <QFile>
-
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -56,7 +54,11 @@ struct Frame {
 // negative AVERROR with *error set.
 int openAudio(const QString &path, Format &fmt, int *streamIndex, QString *error)
 {
-    const QByteArray p = QFile::encodeName(path);
+    // libav's file protocol takes the path as UTF-8 on every platform (on
+    // Windows it converts UTF-8 to UTF-16 internally for _wopen). QFile::encodeName
+    // would hand it the local 8-bit codec instead, so a non-ASCII Windows path
+    // (accented file/album names) becomes invalid UTF-8 and open fails with EINVAL.
+    const QByteArray p = path.toUtf8();
     int rc = avformat_open_input(&fmt.ctx, p.constData(), nullptr, nullptr);
     if (rc < 0) {
         if (error)
