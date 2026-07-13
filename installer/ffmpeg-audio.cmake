@@ -91,6 +91,11 @@ endif()
 
 # Put our freshly built .pc files first on pkg-config's search path so src's
 # pkg_check_modules(LIBAV) picks these up rather than any system FFmpeg. The
-# MSYS2/MinGW pkgconf this runs under uses ':' as the path separator.
-set(ENV{PKG_CONFIG_PATH} "${FFMPEG_PC_DIR}:$ENV{PKG_CONFIG_PATH}")
+# mingw64 pkg-config is a native Windows build, so it splits PKG_CONFIG_PATH on
+# ';' — using ':' would break the 'D:/...' drive letter in these paths.
+if(DEFINED ENV{PKG_CONFIG_PATH} AND NOT "$ENV{PKG_CONFIG_PATH}" STREQUAL "")
+    set(ENV{PKG_CONFIG_PATH} "${FFMPEG_PC_DIR};$ENV{PKG_CONFIG_PATH}")
+else()
+    set(ENV{PKG_CONFIG_PATH} "${FFMPEG_PC_DIR}")
+endif()
 message(STATUS "Audio-only FFmpeg ready at ${FFMPEG_AUDIO_PREFIX}")
