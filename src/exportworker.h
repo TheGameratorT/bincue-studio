@@ -5,7 +5,7 @@
 #include "track.h"
 
 // Builds the BIN + CUE pair off the UI thread: each track is decoded by
-// ffmpeg to raw CD-DA PCM, sector-aligned, its baked-in trailing silence
+// libav to raw CD-DA PCM, sector-aligned, its baked-in trailing silence
 // trimmed/filled to the inter-track gap, and appended to a single image whose
 // cue offsets then match byte-for-byte.
 class ExportWorker : public QThread

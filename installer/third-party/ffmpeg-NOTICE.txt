@@ -1,16 +1,21 @@
-This installation bundles ffmpeg and ffprobe, which BinCue Studio uses to decode
-and probe your audio tracks. ffmpeg is a separate project, not part of BinCue
-Studio.
+This installation bundles FFmpeg's libav* libraries, which BinCue Studio links
+to decode and probe your audio tracks. FFmpeg is a separate project, not part of
+BinCue Studio.
 
-  ffmpeg 8.1.2 (gyan.dev "essentials" static build)
-  https://ffmpeg.org  /  https://www.gyan.dev/ffmpeg/builds/
+  FFmpeg 8.1.2 — libavformat, libavcodec, libavutil, libswresample
+  https://ffmpeg.org
   Copyright the FFmpeg authors.
-  This build is licensed under the GNU General Public License, version 3 (GPLv3).
 
-The bundled files (ffmpeg.exe and ffprobe.exe) are taken from the official
-prebuilt Windows "essentials" build published at
-https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2 . The complete
-corresponding source code, and the exact build configuration, are available from
-that project and from https://ffmpeg.org/download.html .
+These DLLs are built from the official FFmpeg 8.1.2 source release
+(https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz) and are licensed under the GNU
+Lesser General Public License, version 2.1 or later (LGPL v2.1+). The build
+enables only audio demuxers/decoders and no GPL or nonfree components, so no part
+is under the GPL. BinCue Studio links these libraries dynamically (as the
+separate DLLs shipped alongside the application), as the LGPL requires.
 
-The GPL license text is available at https://www.gnu.org/licenses/gpl-3.0.html
+The exact build configuration (the FFmpeg ./configure line) is in
+installer/ffmpeg-audio.cmake in the BinCue Studio source tree. The complete
+corresponding source code is the unmodified upstream release linked above and is
+also available from https://ffmpeg.org/download.html .
+
+The LGPL license text is available at https://www.gnu.org/licenses/lgpl-2.1.html

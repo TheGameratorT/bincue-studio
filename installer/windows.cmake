@@ -49,41 +49,17 @@ foreach(_f ${CDRDAO_FILES})
     list(APPEND CDRDAO_STAGE "${CDRDAO_DIR}/${_f}")
 endforeach()
 
-# Bundle ffmpeg/ffprobe (audio decoding + probing) the same way. We use the
-# gyan.dev "essentials" static build — two self-contained exes, no DLLs — which
-# already covers FLAC and the other formats the app hands to it. It is large
-# (~100 MB per exe), which is why these were historically left out; bundling
-# them means a working install with nothing for the user to fetch.
-set(FFMPEG_VERSION "8.1.2")
-set(FFMPEG_URL "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.7z")
-set(FFMPEG_SHA256 "e25b682664025d49034c981afb4bae36238a40f29a3cc1c713ad9a8b5b3528f6")
-set(FFMPEG_ARCHIVE "${CMAKE_BINARY_DIR}/ffmpeg-${FFMPEG_VERSION}.7z")
-set(FFMPEG_DIR "${CMAKE_BINARY_DIR}/ffmpeg-${FFMPEG_VERSION}")
-# The archive unpacks into a versioned top folder with the exes under bin/.
-set(FFMPEG_BIN "${FFMPEG_DIR}/ffmpeg-${FFMPEG_VERSION}-essentials_build/bin")
-set(FFMPEG_FILES ffmpeg.exe ffprobe.exe)
-
-if(NOT EXISTS "${FFMPEG_BIN}/ffmpeg.exe")
-    message(STATUS "Fetching ffmpeg ${FFMPEG_VERSION} for bundling…")
-    file(DOWNLOAD "${FFMPEG_URL}" "${FFMPEG_ARCHIVE}"
-        EXPECTED_HASH SHA256=${FFMPEG_SHA256}
-        SHOW_PROGRESS STATUS _ffmpeg_dl)
-    list(GET _ffmpeg_dl 0 _ffmpeg_dl_code)
-    if(NOT _ffmpeg_dl_code EQUAL 0)
-        list(GET _ffmpeg_dl 1 _ffmpeg_dl_msg)
-        message(FATAL_ERROR "Could not download ffmpeg: ${_ffmpeg_dl_msg}")
-    endif()
-    file(ARCHIVE_EXTRACT INPUT "${FFMPEG_ARCHIVE}" DESTINATION "${FFMPEG_DIR}")
+# Stage the audio-only FFmpeg DLLs built from source by installer/ffmpeg-audio.cmake
+# (avformat/avcodec/avutil/swresample, plus any runtime deps their build pulled
+# into the prefix's bin/). The app links these directly — there are no ffmpeg or
+# ffprobe executables to ship any more, and because the build enables only the
+# audio demuxers/decoders we accept, the DLLs are a few MB total instead of the
+# ~200 MB of the old bundled exes. FFMPEG_AUDIO_PREFIX is set by that module.
+file(GLOB FFMPEG_STAGE "${FFMPEG_AUDIO_PREFIX}/bin/*.dll")
+if(NOT FFMPEG_STAGE)
+    message(FATAL_ERROR "No audio-only FFmpeg DLLs in ${FFMPEG_AUDIO_PREFIX}/bin — "
+        "delete ${FFMPEG_AUDIO_PREFIX} to rebuild.")
 endif()
-
-set(FFMPEG_STAGE "")
-foreach(_f ${FFMPEG_FILES})
-    if(NOT EXISTS "${FFMPEG_BIN}/${_f}")
-        message(FATAL_ERROR "ffmpeg bundle is missing ${_f} — delete "
-            "${FFMPEG_DIR} to re-fetch.")
-    endif()
-    list(APPEND FFMPEG_STAGE "${FFMPEG_BIN}/${_f}")
-endforeach()
 
 get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(QT_BIN_DIR "${_qmake}" DIRECTORY)
@@ -100,8 +76,9 @@ add_custom_target(deploy ALL
     COMMAND "${WINDEPLOYQT_EXECUTABLE}"
         --no-translations --no-system-d3d-compiler --no-opengl-sw
         "${DIST_DIR}/bincue-studio.exe" "${DIST_DIR}/cdlabel.exe"
-    # Bundled cdrdao + ffmpeg + their GPL notices, next to the app so burning
-    # and audio decoding both work with nothing for the user to install.
+    # Bundled cdrdao (GPL) + the audio-only FFmpeg libav* DLLs (LGPL) + their
+    # license notices, next to the app so burning and audio decoding both work
+    # with nothing for the user to install.
     COMMAND ${CMAKE_COMMAND} -E copy ${CDRDAO_STAGE} ${FFMPEG_STAGE} "${DIST_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_SOURCE_DIR}/installer/third-party/cdrdao-NOTICE.txt"

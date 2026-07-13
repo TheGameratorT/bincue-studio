@@ -67,7 +67,9 @@ void ExportWorker::run()
         QString decodeError;
         QByteArray pcm = programaudio::decode(track.sourcePath, &decodeError);
         if (!decodeError.isEmpty()) {
-            emit failed(tr("ffmpeg failed:\n%1").arg(decodeError));
+            emit failed(tr("Decoding %1 failed:\n%2")
+                            .arg(QFileInfo(track.sourcePath).fileName(),
+                                 decodeError));
             return;
         }
         // Sector-align and normalise the trailing gap. Identical to what the

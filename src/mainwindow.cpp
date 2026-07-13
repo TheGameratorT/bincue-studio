@@ -45,8 +45,8 @@
 #include "burnjob.h"
 #include "exportworker.h"
 #include "playbackengine.h"
+#include "programaudio.h"
 #include "tagreader.h"
-#include "toolpaths.h"
 #include "trackdetailsdialog.h"
 
 #include <hostkit/HostSession.h>
@@ -88,24 +88,7 @@ QString formatClock(qint64 ms)
 bool probeDurationSeconds(const QString &path, double &outSeconds,
                           QString &error)
 {
-    QProcess proc;
-    proc.start(resolveMediaTool(QStringLiteral("ffprobe")),
-               {QStringLiteral("-v"), QStringLiteral("error"),
-                QStringLiteral("-show_entries"),
-                QStringLiteral("format=duration"), QStringLiteral("-of"),
-                QStringLiteral("csv=p=0"), path});
-    if (!proc.waitForFinished(30000) || proc.exitCode() != 0) {
-        error = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-        if (error.isEmpty())
-            error = QStringLiteral("ffprobe failed");
-        return false;
-    }
-    bool ok = false;
-    outSeconds =
-        QString::fromUtf8(proc.readAllStandardOutput()).trimmed().toDouble(&ok);
-    if (!ok)
-        error = QStringLiteral("could not parse the reported duration");
-    return ok;
+    return programaudio::probeDuration(path, &outSeconds, &error);
 }
 
 // The file dialog filter shared by "Add Tracks" and a track's "Re-import".

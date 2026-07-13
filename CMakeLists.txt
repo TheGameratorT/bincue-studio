@@ -28,6 +28,14 @@ else()
     find_package(hostkit 1 CONFIG REQUIRED)
 endif()
 
+# Windows has no system FFmpeg to link, so build a minimal audio-only one from
+# source and put its .pc files on pkg-config's path. Must run before the src
+# subdirectory, whose pkg_check_modules(LIBAV REQUIRED) resolves at configure
+# time. On Linux the libraries come from the system ffmpeg package instead.
+if(WIN32)
+    include(installer/ffmpeg-audio.cmake)
+endif()
+
 add_subdirectory(src)      # the BinCue Studio application
 add_subdirectory(cdlabel)  # the CD label editor (also builds standalone)
 

@@ -1,6 +1,6 @@
 // BinCue Studio — a small K3b-style Audio CD project tool.
 //
-// Builds a single-file CD-DA image (BIN + CUE) from FLAC (or other ffmpeg-
+// Builds a single-file CD-DA image (BIN + CUE) from FLAC (or other libav-
 // readable audio) tracks, with:
 //
 //   - CD-Text style metadata: disc Title/Performer/Genre/Year, and per-track
@@ -19,7 +19,8 @@
 //   - Tracks are only actually decoded at export time; nothing is transcoded
 //     just to edit metadata or reorder.
 //
-// ffmpeg + ffprobe must be installed and on PATH. TagLib (optional, compile
+// Audio is decoded with the linked libav* libraries (libavformat / libavcodec
+// / libswresample). TagLib (optional, compile
 // time) auto-fills per-track Title/Performer/Songwriter/ISRC from existing
 // tags when files are added; album-wide fields are filled from a chosen
 // track's tags with one button instead.
@@ -30,11 +31,9 @@
 
 #include <QApplication>
 #include <QIcon>
-#include <QMessageBox>
 
 #include "mainwindow.h"
 #include "platformstyle.h"
-#include "toolpaths.h"
 
 int main(int argc, char *argv[])
 {
@@ -49,19 +48,6 @@ int main(int argc, char *argv[])
     QApplication::setWindowIcon(
         QIcon::fromTheme(QStringLiteral("bincue-studio"),
                          QIcon(QStringLiteral(":/icons/bincue-studio.svg"))));
-
-    // Quick sanity check for ffmpeg/ffprobe before showing the window. Prefer
-    // the copy bundled next to the exe (Windows), then PATH (Linux/system).
-    for (const char *tool : {"ffmpeg", "ffprobe"}) {
-        if (resolveMediaTool(QLatin1String(tool)).isEmpty()) {
-            QMessageBox::critical(
-                nullptr, QObject::tr("Missing dependency"),
-                QObject::tr("'%1' was not found next to the application or on "
-                            "PATH. Please install ffmpeg.")
-                    .arg(QLatin1String(tool)));
-            return 1;
-        }
-    }
 
     MainWindow window;
     window.show();

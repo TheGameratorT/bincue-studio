@@ -1,10 +1,18 @@
+# pkg-config resolves both the libav* decode libraries (required) and TagLib
+# (optional) below.
+find_package(PkgConfig REQUIRED)
+
+# libav* (from FFmpeg) decodes and resamples source files to Red Book CD-DA PCM,
+# linked directly instead of shelling out to the ffmpeg/ffprobe binaries. On
+# Linux these come from the system ffmpeg package; on Windows from the audio-only
+# build staged by installer/windows.cmake (its lib/pkgconfig is on PKG_CONFIG_PATH).
+pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
+    libavformat libavcodec libavutil libswresample)
+
 # TagLib fills track/album metadata (Title/Performer/Songwriter/ISRC and the
 # album-wide fields) from the audio files' tags. Optional: when absent, track
 # titles are seeded from filenames only.
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-    pkg_check_modules(TAGLIB IMPORTED_TARGET taglib>=2.0)
-endif()
+pkg_check_modules(TAGLIB IMPORTED_TARGET taglib>=2.0)
 
 add_executable(bincue-studio
     main.cpp
@@ -15,7 +23,6 @@ add_executable(bincue-studio
     exportworker.cpp
     playbackengine.cpp
     miniaudio.cpp
-    toolpaths.cpp
     burncontroller.cpp
     burnjob.cpp
     burndialog.cpp
@@ -33,7 +40,7 @@ target_include_directories(bincue-studio PRIVATE
 
 target_link_libraries(bincue-studio PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets hostkit::hostkit
-    Threads::Threads ${CMAKE_DL_LIBS})
+    PkgConfig::LIBAV Threads::Threads ${CMAKE_DL_LIBS})
 
 # Header-only helpers shared with cdlabel (common/): platform style selection
 # and — when TagLib is present — Unicode-safe tag file opening.

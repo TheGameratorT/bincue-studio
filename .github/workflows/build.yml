@@ -81,6 +81,9 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
           mingw-w64-x86_64-pkgconf
+          mingw-w64-x86_64-nasm
+          make
+          diffutils
           mingw-w64-x86_64-qt6-base
           mingw-w64-x86_64-qt6-svg
           mingw-w64-x86_64-qt6-tools

@@ -33,7 +33,7 @@ environment variable at it so `binarycreator` is found.
 
 ## cdrdao on Windows
 
-Unlike ffmpeg, `cdrdao` **is** bundled. `windows.cmake` fetches the official
+`cdrdao` is bundled as a prebuilt binary. `windows.cmake` fetches the official
 prebuilt Windows bundle from the cdrdao project's release (pinned by URL and
 SHA-256), and the `deploy` target stages `cdrdao.exe` and its `msys-*.dll`
 runtime into `dist/` next to the app, so burning to a local drive works with no
@@ -41,17 +41,23 @@ extra setup. cdrdao is GPLv2+; `third-party/cdrdao-NOTICE.txt` ships alongside
 it. To move to a newer cdrdao, update `CDRDAO_VERSION`/`CDRDAO_URL`/`CDRDAO_SHA256`
 in `windows.cmake` and delete `build/cdrdao-<version>/` to force a re-fetch.
 
-## ffmpeg on Windows
+## FFmpeg (libav\*) on Windows
 
-`ffmpeg` and `ffprobe` are bundled too, the same way as cdrdao: `windows.cmake`
-fetches the gyan.dev "essentials" static build (pinned by URL and SHA-256) and
-the `deploy` target stages `ffmpeg.exe`/`ffprobe.exe` into `dist/` next to the
-app, so audio decoding works with nothing for the user to install. These are
-large static exes (~100 MB each), which is the main size cost of the installer;
-they are GPLv3, with `third-party/ffmpeg-NOTICE.txt` shipped alongside. To move
-to a newer ffmpeg, update `FFMPEG_VERSION`/`FFMPEG_URL`/`FFMPEG_SHA256` in
-`windows.cmake` and delete `build/ffmpeg-<version>/` to force a re-fetch.
+The app links FFmpeg's `libavformat`/`libavcodec`/`libavutil`/`libswresample`
+directly — it no longer runs `ffmpeg.exe`/`ffprobe.exe`. Because Windows has no
+system FFmpeg to link, `installer/ffmpeg-audio.cmake` **builds one from source**
+at configure time (before the `src` subdirectory, so pkg-config finds it): it
+downloads the official FFmpeg source (pinned by URL and SHA-256) and runs
+`./configure --disable-everything` re-enabling only the audio demuxers/decoders
+the app accepts (FLAC/WAV/AIFF, MP3, Ogg Vorbis/Opus, M4A/AAC/ALAC), then
+`make install` into `build/ffmpeg-audio/`. The `deploy` target stages the
+resulting `avcodec-*.dll`/`avformat-*.dll`/`avutil-*.dll`/`swresample-*.dll`
+into `dist/` next to the app.
 
-(BinCue Studio still resolves `ffmpeg`/`ffprobe` by name and warns at startup if
-they are somehow missing — Windows resolves subprocess names against the
-application directory first, so the bundled copies win without touching PATH.)
+Because only audio codecs are enabled and no GPL/nonfree components are pulled
+in, the DLLs are a few MB total (versus the ~200 MB the old bundled exes cost)
+and are **LGPL** — `third-party/ffmpeg-NOTICE.txt` ships alongside. This needs
+`nasm` and `make` in the MSYS2 build environment (added to the CI job). To move
+to a newer FFmpeg, update `FFMPEG_VERSION`/`FFMPEG_URL`/`FFMPEG_SHA256` in
+`ffmpeg-audio.cmake` and delete `build/ffmpeg-audio/` (and `build/ffmpeg-<ver>/`)
+to force a rebuild.

@@ -11,9 +11,13 @@
 namespace programaudio {
 
 // Decode a source file to raw interleaved 16-bit little-endian / 44100 Hz /
-// stereo PCM via the bundled ffmpeg. On failure, returns an empty array and
-// sets *error to ffmpeg's diagnostics (or the process error).
+// stereo PCM using the linked libav* libraries. On failure, returns an empty
+// array and sets *error to libav's diagnostics.
 QByteArray decode(const QString &sourcePath, QString *error);
+
+// Read a source file's duration in seconds via libav (replacing an ffprobe
+// call). Returns false and sets *error when the duration can't be determined.
+bool probeDuration(const QString &sourcePath, double *outSeconds, QString *error);
 
 // Sector-align the decoded PCM, then trim or pad its trailing silence so the
 // gap after the track equals the inter-track gap (0 after the last track).
