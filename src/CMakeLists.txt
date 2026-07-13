@@ -16,6 +16,7 @@ add_executable(bincue-studio
     burncontroller.cpp
     burnjob.cpp
     burndialog.cpp
+    trackdetailsdialog.cpp
     mainwindow.cpp
 )
 

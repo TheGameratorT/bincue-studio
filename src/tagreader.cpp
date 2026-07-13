@@ -47,7 +47,8 @@ TrackTags readTrackTags(const QString &path)
     const TagLib::PropertyMap props = file.properties();
     tags.title = firstTag(props, {"TITLE"});
     tags.performer = firstTag(props, {"ARTIST"});
-    tags.songwriter = firstTag(props, {"SONGWRITER", "COMPOSER"});
+    tags.songwriter = firstTag(props, {"SONGWRITER", "LYRICIST"});
+    tags.composer = firstTag(props, {"COMPOSER"});
     tags.isrc = firstTag(props, {"ISRC"});
 #else
     Q_UNUSED(path);

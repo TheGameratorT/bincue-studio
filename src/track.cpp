@@ -16,7 +16,13 @@ QJsonObject Track::toJson() const
     o[QStringLiteral("title")] = title;
     o[QStringLiteral("performer")] = performer;
     o[QStringLiteral("songwriter")] = songwriter;
+    o[QStringLiteral("composer")] = composer;
+    o[QStringLiteral("arranger")] = arranger;
+    o[QStringLiteral("message")] = message;
     o[QStringLiteral("isrc")] = isrc;
+    o[QStringLiteral("copy_permitted")] = copyPermitted;
+    o[QStringLiteral("pre_emphasis")] = preEmphasis;
+    o[QStringLiteral("four_channel")] = fourChannel;
     o[QStringLiteral("duration_seconds")] = durationSeconds;
     o[QStringLiteral("baked_in_gap")] = bakedInGap;
     return o;
@@ -29,7 +35,13 @@ Track Track::fromJson(const QJsonObject &o)
     t.title = o.value(QStringLiteral("title")).toString();
     t.performer = o.value(QStringLiteral("performer")).toString();
     t.songwriter = o.value(QStringLiteral("songwriter")).toString();
+    t.composer = o.value(QStringLiteral("composer")).toString();
+    t.arranger = o.value(QStringLiteral("arranger")).toString();
+    t.message = o.value(QStringLiteral("message")).toString();
     t.isrc = o.value(QStringLiteral("isrc")).toString();
+    t.copyPermitted = o.value(QStringLiteral("copy_permitted")).toBool();
+    t.preEmphasis = o.value(QStringLiteral("pre_emphasis")).toBool();
+    t.fourChannel = o.value(QStringLiteral("four_channel")).toBool();
     t.durationSeconds = o.value(QStringLiteral("duration_seconds")).toDouble();
     t.bakedInGap =
         o.value(QStringLiteral("baked_in_gap")).toDouble(t.bakedInGap);

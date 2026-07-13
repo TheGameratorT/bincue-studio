@@ -10,6 +10,7 @@ struct TrackTags {
     QString title;
     QString performer;
     QString songwriter;
+    QString composer;
     QString isrc;
 };
 

@@ -108,12 +108,31 @@ void ExportWorker::run()
 
         cue << QStringLiteral("  TRACK %1 AUDIO")
                    .arg(trackNum, 2, 10, QLatin1Char('0'));
+        // Standard cue FLAGS: digital-copy-permitted, four-channel, pre-emphasis.
+        // Emitted only when set so a plain stereo track stays flag-free.
+        QStringList flags;
+        if (track.copyPermitted)
+            flags << QStringLiteral("DCP");
+        if (track.fourChannel)
+            flags << QStringLiteral("4CH");
+        if (track.preEmphasis)
+            flags << QStringLiteral("PRE");
+        if (!flags.isEmpty())
+            cue << QStringLiteral("    FLAGS %1").arg(flags.join(QLatin1Char(' ')));
         cue << QStringLiteral("    TITLE \"%1\"").arg(track.title);
         if (!track.performer.isEmpty())
             cue << QStringLiteral("    PERFORMER \"%1\"").arg(track.performer);
         if (!track.songwriter.isEmpty())
             cue << QStringLiteral("    SONGWRITER \"%1\"")
                        .arg(track.songwriter);
+        // Composer/arranger/message have no standard cue command, so preserve
+        // them as REM comments; the cdrdao TOC carries them as real CD-Text.
+        if (!track.composer.isEmpty())
+            cue << QStringLiteral("    REM COMPOSER \"%1\"").arg(track.composer);
+        if (!track.arranger.isEmpty())
+            cue << QStringLiteral("    REM ARRANGER \"%1\"").arg(track.arranger);
+        if (!track.message.isEmpty())
+            cue << QStringLiteral("    REM MESSAGE \"%1\"").arg(track.message);
         const QString isrc = normalizeIsrc(track.isrc);
         if (!isrc.isEmpty())
             cue << QStringLiteral("    ISRC %1").arg(isrc);
@@ -137,7 +156,9 @@ void ExportWorker::run()
 
         if (m_params.writeToc)
             tocEntries.append({offsetFrames, track.title, track.performer,
-                               track.songwriter, isrc});
+                               track.songwriter, track.composer, track.arranger,
+                               track.message, isrc, track.copyPermitted,
+                               track.preEmphasis, track.fourChannel});
 
         prevStart = offsetFrames;
 
@@ -232,14 +253,25 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
     // emit TITLE and PERFORMER on the disc and every track, plus SONGWRITER only
     // when it's in play, filling every gap below with an empty string.
     bool anyTrackText = false, anyTrackSongwriter = false;
+    bool anyComposer = false, anyArranger = false, anyMessage = false;
     for (const TocEntry &e : entries) {
         anyTrackText |= !e.title.isEmpty() || !e.performer.isEmpty();
         anyTrackSongwriter |= !e.songwriter.isEmpty();
+        anyComposer |= !e.composer.isEmpty();
+        anyArranger |= !e.arranger.isEmpty();
+        anyMessage |= !e.message.isEmpty();
     }
     const bool useSongwriter =
         !m_params.albumSongwriter.isEmpty() || anyTrackSongwriter;
+    // Composer/arranger/message have no disc-wide field; a track carrying one
+    // still forces the pack type onto every track and the disc (blank-filled)
+    // to satisfy cdrdao's exact nofTracks+1 count.
+    const bool useComposer = anyComposer;
+    const bool useArranger = anyArranger;
+    const bool useMessage = anyMessage;
     const bool haveCdText = !m_params.albumTitle.isEmpty()
-        || !m_params.albumPerformer.isEmpty() || anyTrackText || useSongwriter;
+        || !m_params.albumPerformer.isEmpty() || anyTrackText || useSongwriter
+        || useComposer || useArranger || useMessage;
 
     // Disc-wide CD-Text from the album fields, mirroring the cue's header.
     if (haveCdText) {
@@ -251,6 +283,14 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
         if (useSongwriter)
             out << QStringLiteral("    SONGWRITER %1")
                        .arg(q(m_params.albumSongwriter));
+        // No disc-wide composer/arranger/message field, so the disc slot the
+        // count rule demands is filled with an empty string.
+        if (useComposer)
+            out << QStringLiteral("    COMPOSER %1").arg(q(QString()));
+        if (useArranger)
+            out << QStringLiteral("    ARRANGER %1").arg(q(QString()));
+        if (useMessage)
+            out << QStringLiteral("    MESSAGE %1").arg(q(QString()));
         out << QStringLiteral("  }");
         out << QStringLiteral("}");
     }
@@ -266,9 +306,17 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
         out << QStringLiteral("// Track %1").arg(i + 1);
         out << QStringLiteral("TRACK AUDIO");
 
-        // cdrdao's grammar fixes the order of a track's modifiers: ISRC first,
-        // then CD_TEXT, and only after that the data statements (PREGAP / FILE /
-        // START). Emitting CD_TEXT before ISRC is a syntax error.
+        // cdrdao's grammar lets a track's flags (COPY, PRE_EMPHASIS, the
+        // channel count and ISRC) appear in any order, but they must all come
+        // before CD_TEXT, which in turn precedes the data statements (PREGAP /
+        // FILE / START). Emit only the non-default flags — an unstated flag
+        // means copy-prohibited, no pre-emphasis, two-channel.
+        if (e.copyPermitted)
+            out << QStringLiteral("COPY");
+        if (e.preEmphasis)
+            out << QStringLiteral("PRE_EMPHASIS");
+        if (e.fourChannel)
+            out << QStringLiteral("FOUR_CHANNEL_AUDIO");
         // Subchannel ISRC is genuinely per-track optional (no all-or-nothing
         // rule, unlike the CD-Text packs above), so emit whichever tracks have
         // one. It can't be blank-filled anyway: cdrdao validates it as an exact
@@ -291,11 +339,17 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
                 out << QStringLiteral("    SONGWRITER %1")
                            .arg(q(e.songwriter.isEmpty() ? m_params.albumSongwriter
                                                          : e.songwriter));
+            // These have no album fallback; a track that lacks one gets an
+            // empty string, keeping every track's pack set identical.
+            if (useComposer)
+                out << QStringLiteral("    COMPOSER %1").arg(q(e.composer));
+            if (useArranger)
+                out << QStringLiteral("    ARRANGER %1").arg(q(e.arranger));
+            if (useMessage)
+                out << QStringLiteral("    MESSAGE %1").arg(q(e.message));
             out << QStringLiteral("  }");
             out << QStringLiteral("}");
         }
-        // (COMPOSER/ARRANGER/MESSAGE are never emitted, so they stay at count 0
-        // and cdrdao's all-or-nothing check leaves them alone.)
 
         if (i == 0 && pregapFrames > 0)
             out << QStringLiteral("PREGAP %1").arg(framesToTimestamp(pregapFrames));

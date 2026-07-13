@@ -62,6 +62,8 @@ private:
     void addTracks();
     void removeSelected();
     void moveSelected(int direction);
+    void openTrackDetails(int row);
+    void reimportTrack(int row);
     void fillDiscInfoFromTrack();
     void createLabel();
     void showAbout();

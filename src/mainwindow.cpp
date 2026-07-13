@@ -9,6 +9,7 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
@@ -43,6 +44,7 @@
 #include "exportworker.h"
 #include "tagreader.h"
 #include "toolpaths.h"
+#include "trackdetailsdialog.h"
 
 #include <hostkit/HostSession.h>
 
@@ -51,10 +53,9 @@ namespace {
 enum Column {
     ColTitle,
     ColPerformer,
-    ColSongwriter,
-    ColIsrc,
     ColDuration,
     ColBaked,
+    ColActions,
     ColumnCount
 };
 
@@ -93,6 +94,33 @@ bool probeDurationSeconds(const QString &path, double &outSeconds,
     if (!ok)
         error = QStringLiteral("could not parse the reported duration");
     return ok;
+}
+
+// The file dialog filter shared by "Add Tracks" and a track's "Re-import".
+QString audioFileFilter()
+{
+    return QCoreApplication::translate(
+        "MainWindow",
+        "Audio files (*.flac *.wav *.mp3 *.ogg *.opus *.m4a *.aiff);;"
+        "All files (*)");
+}
+
+// Fill a track's per-track metadata from its source file's tags, exactly as a
+// fresh import does: the title falls back to the file name, the rest to
+// whatever the tags carry (blank when absent). Arranger, message and the
+// playback flags aren't tag-derived and are left untouched by the caller.
+void importTagsInto(Track &track)
+{
+    track.title = QFileInfo(track.sourcePath).completeBaseName();
+    if (!tagReaderAvailable())
+        return;
+    const TrackTags tags = readTrackTags(track.sourcePath);
+    if (!tags.title.isEmpty())
+        track.title = tags.title;
+    track.performer = tags.performer;
+    track.songwriter = tags.songwriter;
+    track.composer = tags.composer;
+    track.isrc = tags.isrc;
 }
 
 // The label editor is a sibling executable built by the same CMake project;
@@ -442,14 +470,13 @@ void MainWindow::buildUi()
     // Track table. The vertical header doubles as the track number.
     m_table = new QTableWidget(0, ColumnCount);
     m_table->setHorizontalHeaderLabels({tr("Title"), tr("Performer"),
-                                        tr("Songwriter"), tr("ISRC"),
-                                        tr("Duration"), tr("Baked-in Gap")});
+                                        tr("Duration"), tr("Baked-in Gap"),
+                                        tr("Actions")});
     QHeaderView *header = m_table->horizontalHeader();
     header->setSectionResizeMode(ColTitle, QHeaderView::Stretch);
     header->setSectionResizeMode(ColPerformer, QHeaderView::Stretch);
-    header->setSectionResizeMode(ColSongwriter, QHeaderView::Stretch);
-    header->setSectionResizeMode(ColIsrc, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(ColDuration, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(ColActions, QHeaderView::ResizeToContents);
     m_table->setAlternatingRowColors(true);
     m_table->setShowGrid(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -577,12 +604,6 @@ void MainWindow::onItemChanged(QTableWidgetItem *item)
     case ColPerformer:
         track.performer = item->text();
         break;
-    case ColSongwriter:
-        track.songwriter = item->text();
-        break;
-    case ColIsrc:
-        track.isrc = item->text();
-        break;
     default:
         return;
     }
@@ -598,11 +619,6 @@ void MainWindow::refreshTable()
 
         auto *titleItem = new QTableWidgetItem(track.title);
         auto *perfItem = new QTableWidgetItem(track.performer);
-        auto *songwriterItem = new QTableWidgetItem(track.songwriter);
-        auto *isrcItem = new QTableWidgetItem(track.isrc);
-        isrcItem->setToolTip(
-            tr("12-character ISRC. Auto-filled from the source's tags when "
-               "present; written to the cue only if valid."));
 
         auto *durItem = new QTableWidgetItem(
             redbook::secondsToMmss(track.durationSeconds));
@@ -611,8 +627,6 @@ void MainWindow::refreshTable()
 
         m_table->setItem(row, ColTitle, titleItem);
         m_table->setItem(row, ColPerformer, perfItem);
-        m_table->setItem(row, ColSongwriter, songwriterItem);
-        m_table->setItem(row, ColIsrc, isrcItem);
         m_table->setItem(row, ColDuration, durItem);
 
         auto *bakedSpin = new QDoubleSpinBox;
@@ -621,6 +635,10 @@ void MainWindow::refreshTable()
         bakedSpin->setDecimals(1);
         bakedSpin->setSuffix(tr(" s"));
         bakedSpin->setFrame(false);
+        // Let the row's alternating colour show through instead of the spin
+        // box painting its own opaque base colour over it.
+        bakedSpin->setStyleSheet(
+            QStringLiteral("QDoubleSpinBox { background: transparent; }"));
         bakedSpin->setValue(track.bakedInGap);
         bakedSpin->setToolTip(
             tr("Trailing silence this source already has. Trimmed or filled "
@@ -634,6 +652,50 @@ void MainWindow::refreshTable()
                     }
                 });
         m_table->setCellWidget(row, ColBaked, bakedSpin);
+
+        // Per-track actions, kept compact so the table doesn't grow a column per
+        // verb: edit the hidden metadata, and re-import the source file.
+        auto *actions = new QWidget;
+        auto *actionsLayout = new QHBoxLayout(actions);
+        actionsLayout->setContentsMargins(0, 0, 0, 0);
+        actionsLayout->setSpacing(2);
+
+        // A door to the fields kept out of the table (songwriter, composer,
+        // arranger, message, ISRC and the subchannel flags).
+        const bool hasDetails = TrackDetailsDialog::hasDetails(track);
+        auto *detailsBtn = new QPushButton(tr("Edit"));
+        detailsBtn->setFlat(true);
+        // Rows that already carry some of that hidden metadata get a bold label
+        // so they still stand out — cleaner than a glyph in the text.
+        if (hasDetails) {
+            QFont font = detailsBtn->font();
+            font.setBold(true);
+            detailsBtn->setFont(font);
+        }
+        detailsBtn->setToolTip(
+            hasDetails
+                ? tr("This track has extra metadata. Edit songwriter, composer, "
+                     "arranger, message, ISRC and playback flags.")
+                : tr("Edit songwriter, composer, arranger, message, ISRC and "
+                     "playback flags for this track."));
+        connect(detailsBtn, &QPushButton::clicked, this,
+                [this, row] { openTrackDetails(row); });
+
+        // Re-point this track at its source file — after a move or a re-encode —
+        // optionally pulling the new file's tags in as well.
+        auto *reimportBtn = new QToolButton;
+        reimportBtn->setIcon(
+            themedIcon("view-refresh", QStyle::SP_BrowserReload));
+        reimportBtn->setAutoRaise(true);
+        reimportBtn->setToolTip(
+            tr("Re-import: pick this track's source file again, optionally "
+               "refreshing its tags."));
+        connect(reimportBtn, &QToolButton::clicked, this,
+                [this, row] { reimportTrack(row); });
+
+        actionsLayout->addWidget(detailsBtn);
+        actionsLayout->addWidget(reimportBtn);
+        m_table->setCellWidget(row, ColActions, actions);
     }
     m_table->blockSignals(false);
     updateCapacity();
@@ -652,9 +714,7 @@ QList<int> MainWindow::selectedRows() const
 void MainWindow::addTracks()
 {
     const QStringList paths = QFileDialog::getOpenFileNames(
-        this, tr("Add Tracks"), QString(),
-        tr("Audio files (*.flac *.wav *.mp3 *.ogg *.opus *.m4a *.aiff);;"
-           "All files (*)"));
+        this, tr("Add Tracks"), QString(), audioFileFilter());
     if (paths.isEmpty())
         return;
 
@@ -670,16 +730,8 @@ void MainWindow::addTracks()
 
         Track track;
         track.sourcePath = path;
-        track.title = QFileInfo(path).completeBaseName();
         track.durationSeconds = duration;
-        if (tagReaderAvailable()) {
-            const TrackTags tags = readTrackTags(path);
-            if (!tags.title.isEmpty())
-                track.title = tags.title;
-            track.performer = tags.performer;
-            track.songwriter = tags.songwriter;
-            track.isrc = tags.isrc;
-        }
+        importTagsInto(track);
         m_tracks.append(track);
         markDirty();
     }
@@ -716,6 +768,66 @@ void MainWindow::moveSelected(int direction)
     markDirty();
     refreshTable();
     m_table->selectRow(newRow);
+}
+
+void MainWindow::openTrackDetails(int row)
+{
+    if (row < 0 || row >= m_tracks.size())
+        return;
+    TrackDetailsDialog dialog(m_tracks[row], this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    m_tracks[row] = dialog.track();
+    markDirty();
+    // The row's own cells don't change, but the button's badge might, so redraw.
+    refreshTable();
+}
+
+void MainWindow::reimportTrack(int row)
+{
+    if (row < 0 || row >= m_tracks.size())
+        return;
+    Track &track = m_tracks[row];
+
+    // Start the picker in the old source's folder — the replacement is usually
+    // right next to it (a re-encode) or the whole set has moved together.
+    const QString startDir = QFileInfo(track.sourcePath).absolutePath();
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Re-import Track Source"), startDir, audioFileFilter());
+    if (path.isEmpty())
+        return;
+
+    double duration = 0.0;
+    QString error;
+    if (!probeDurationSeconds(path, duration, error)) {
+        QMessageBox::warning(
+            this, tr("Could not read file"),
+            tr("%1 could not be read, so the track was left unchanged:\n\n%2")
+                .arg(QFileInfo(path).fileName(), error));
+        return;
+    }
+
+    track.sourcePath = path;
+    track.durationSeconds = duration;
+
+    // Swapping the file always re-points the source; the tags are only touched
+    // if the user asks, so hand-edited metadata survives a plain re-point.
+    if (tagReaderAvailable()) {
+        const auto reply = QMessageBox::question(
+            this, tr("Re-import tags?"),
+            tr("Re-import this track's tags from the selected file?\n\n"
+               "This overwrites the title, performer, songwriter, composer and "
+               "ISRC with the file's tags. The arranger, message and playback "
+               "flags are left unchanged."),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (reply == QMessageBox::Yes)
+            importTagsInto(track);
+    }
+
+    markDirty();
+    refreshTable();
+    statusBar()->showMessage(
+        tr("Re-imported %1.").arg(QFileInfo(path).fileName()), 4000);
 }
 
 void MainWindow::fillDiscInfoFromTrack()

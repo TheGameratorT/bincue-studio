@@ -50,7 +50,13 @@ private:
         QString title;
         QString performer;
         QString songwriter;
+        QString composer;
+        QString arranger;
+        QString message;
         QString isrc;  // already normalized (or empty)
+        bool copyPermitted = false;
+        bool preEmphasis = false;
+        bool fourChannel = false;
     };
 
     // Assemble a cdrdao TOC describing the just-written image (see the .cpp).
