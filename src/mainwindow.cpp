@@ -519,8 +519,12 @@ void MainWindow::buildUi()
     m_totalLabel = new QLabel(formatClock(0));
     m_totalLabel->setToolTip(tr("Total program length"));
     m_nowPlayingLabel = new QLabel;
-    m_nowPlayingLabel->setMinimumWidth(160);
     m_nowPlayingLabel->setTextFormat(Qt::PlainText);
+    // Shares a row with the seek slider, so its width must not follow the
+    // text: a longer title would steal groove width and visually jump the
+    // slider handle at every track change. Fix the width and elide instead.
+    m_nowPlayingLabel->setFixedWidth(
+        m_nowPlayingLabel->fontMetrics().averageCharWidth() * 36);
 
     playerRow->addWidget(m_prevBtn);
     playerRow->addWidget(m_playPauseBtn);
@@ -600,6 +604,7 @@ void MainWindow::buildUi()
             [this](int index) {
                 if (index < 0 || index >= m_tracks.size()) {
                     m_nowPlayingLabel->clear();
+                    m_nowPlayingLabel->setToolTip(QString());
                     return;
                 }
                 const Track &t = m_tracks[index];
@@ -610,7 +615,9 @@ void MainWindow::buildUi()
                                             : t.title);
                 if (!t.performer.isEmpty())
                     text += QStringLiteral(" — %1").arg(t.performer);
-                m_nowPlayingLabel->setText(text);
+                m_nowPlayingLabel->setToolTip(text);
+                m_nowPlayingLabel->setText(m_nowPlayingLabel->fontMetrics().elidedText(
+                    text, Qt::ElideRight, m_nowPlayingLabel->width()));
             });
     connect(m_player, &PlaybackEngine::errorOccurred, this,
             [this](const QString &message) {
