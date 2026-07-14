@@ -27,6 +27,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QProgressBar>
+#include <QProxyStyle>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSlider>
@@ -52,6 +53,23 @@
 #include <hostkit/HostSession.h>
 
 namespace {
+
+// Makes a left-click anywhere on a slider's groove jump the handle straight to
+// that spot (Qt's default only page-steps toward the click). The absolute jump
+// still fires the usual pressed/moved/released signals, so seeking works the
+// same whether you click or drag.
+class DirectJumpStyle : public QProxyStyle {
+public:
+    using QProxyStyle::QProxyStyle;
+    int styleHint(StyleHint hint, const QStyleOption *option,
+                  const QWidget *widget,
+                  QStyleHintReturn *returnData) const override
+    {
+        if (hint == QStyle::SH_Slider_AbsoluteSetButtons)
+            return Qt::LeftButton;
+        return QProxyStyle::styleHint(hint, option, widget, returnData);
+    }
+};
 
 enum Column {
     ColPlay,
@@ -518,6 +536,12 @@ void MainWindow::buildUi()
     m_posLabel->setToolTip(tr("Elapsed"));
     m_seekSlider = new QSlider(Qt::Horizontal);
     m_seekSlider->setRange(0, 0);
+    // Click the groove to seek there, not just drag the handle. The style is
+    // parented to the slider so it's cleaned up with it (setStyle doesn't own
+    // it).
+    auto *seekStyle = new DirectJumpStyle;
+    seekStyle->setParent(m_seekSlider);
+    m_seekSlider->setStyle(seekStyle);
     m_totalLabel = new QLabel(formatClock(0));
     m_totalLabel->setToolTip(tr("Total program length"));
     m_nowPlayingLabel = new QLabel;
