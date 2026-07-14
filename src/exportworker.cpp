@@ -64,17 +64,14 @@ void ExportWorker::run()
                       tr("Encoding: %1")
                           .arg(QFileInfo(track.sourcePath).fileName()));
 
+        programaudio::AudioDecoder decoder;
         QString decodeError;
-        QByteArray pcm = programaudio::decode(track.sourcePath, &decodeError);
-        if (!decodeError.isEmpty()) {
+        if (!decoder.open(track.sourcePath, &decodeError)) {
             emit failed(tr("Decoding %1 failed:\n%2")
                             .arg(QFileInfo(track.sourcePath).fileName(),
                                  decodeError));
             return;
         }
-        // Sector-align and normalise the trailing gap. Identical to what the
-        // preview player streams, so the burned image matches the preview.
-        pcm = programaudio::fitGap(pcm, track, isLast, gapFrames);
 
         cue << QStringLiteral("  TRACK %1 AUDIO")
                    .arg(trackNum, 2, 10, QLatin1Char('0'));
@@ -132,11 +129,31 @@ void ExportWorker::run()
 
         prevStart = offsetFrames;
 
-        if (binOut.write(pcm) != pcm.size()) {
-            emit failed(binOut.errorString());
-            return;
+        // Decode and write the track in chunks: sector-align and normalise the
+        // trailing gap as the PCM streams by, so peak memory is one chunk rather
+        // than a whole track. The concatenated output is byte-for-byte identical
+        // to decode() + fitGap(), so the image matches what the preview plays.
+        programaudio::GapProcessor gap(track, isLast, gapFrames);
+        qint64 trackBytes = 0;
+        for (;;) {
+            QByteArray chunk = decoder.read(1 << 15, &decodeError);
+            if (!decodeError.isEmpty()) {
+                emit failed(tr("Decoding %1 failed:\n%2")
+                                .arg(QFileInfo(track.sourcePath).fileName(),
+                                     decodeError));
+                return;
+            }
+            const bool eof = chunk.isEmpty();
+            const QByteArray out = eof ? gap.finish() : gap.process(chunk);
+            if (binOut.write(out) != out.size()) {
+                emit failed(binOut.errorString());
+                return;
+            }
+            trackBytes += out.size();
+            if (eof)
+                break;
         }
-        offsetFrames += qint64(pcm.size()) / BYTES_PER_FRAME;
+        offsetFrames += trackBytes / BYTES_PER_FRAME;
     }
     binOut.close();
 

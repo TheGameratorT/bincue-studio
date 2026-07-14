@@ -76,43 +76,81 @@ protected:
     {
         const int n = int(m_tracks.size());
         for (int i = m_startTrack; i < n && !m_abort.load(); ++i) {
+            programaudio::AudioDecoder dec;
             QString err;
-            QByteArray pcm = programaudio::decode(m_tracks[i].sourcePath, &err);
-            if (!err.isEmpty()) {
-                m_errorText = err;
-                m_failed.store(true);
+            if (!dec.open(m_tracks[i].sourcePath, &err)) {
+                fail(err);
                 return;
             }
-            pcm = programaudio::fitGap(pcm, m_tracks[i], i == n - 1, m_gapFrames);
 
-            qsizetype pos =
+            // Where this track's audio begins. The first track resumes at the
+            // mid-track offset a seek/start landed on (kept on a sample-frame
+            // edge); later tracks stream from the top. The gap processor is told
+            // this offset so its sector alignment reflects the full track length.
+            qint64 startOffset =
                 (i == m_startTrack)
-                    ? qMin<qsizetype>(m_startByteOffset, pcm.size())
+                    ? qMax<qint64>(0, m_startByteOffset)
                     : 0;
-            pos -= pos % BYTES_PER_SAMPLE_FRAME; // keep on a sample-frame edge
-            const char *data = pcm.constData();
-            while (pos < pcm.size()) {
+            startOffset -= startOffset % BYTES_PER_SAMPLE_FRAME;
+            if (startOffset > 0
+                && !dec.seek(startOffset / BYTES_PER_SAMPLE_FRAME, &err)) {
+                fail(err);
+                return;
+            }
+
+            programaudio::GapProcessor gap(m_tracks[i], i == n - 1, m_gapFrames,
+                                           startOffset);
+            for (;;) {
                 if (m_abort.load())
                     return;
-                ma_uint32 want = ma_uint32(qMin<qsizetype>(
-                    (pcm.size() - pos) / BYTES_PER_SAMPLE_FRAME,
-                    FEED_CHUNK_FRAMES));
-                ma_uint32 got = want;
-                void *dst = nullptr;
-                if (ma_pcm_rb_acquire_write(m_rb, &got, &dst) != MA_SUCCESS)
+                QByteArray chunk = dec.read(FEED_CHUNK_FRAMES, &err);
+                if (!err.isEmpty()) {
+                    fail(err);
                     return;
-                if (got == 0) { // buffer full (or paused): wait and retry
-                    msleep(4);
-                    continue;
                 }
-                std::memcpy(dst, data + pos, size_t(got) * BYTES_PER_SAMPLE_FRAME);
-                ma_pcm_rb_commit_write(m_rb, got);
-                pos += qsizetype(got) * BYTES_PER_SAMPLE_FRAME;
+                const bool eof = chunk.isEmpty();
+                const QByteArray out = eof ? gap.finish() : gap.process(chunk);
+                if (!feed(out))
+                    return; // aborted mid-feed
+                if (eof)
+                    break;
             }
         }
     }
 
 private:
+    // Push a PCM chunk into the ring buffer, blocking while it's full (or
+    // paused). Returns false if aborted mid-feed.
+    bool feed(const QByteArray &pcm)
+    {
+        const char *data = pcm.constData();
+        qsizetype pos = 0;
+        while (pos < pcm.size()) {
+            if (m_abort.load())
+                return false;
+            ma_uint32 want = ma_uint32(qMin<qsizetype>(
+                (pcm.size() - pos) / BYTES_PER_SAMPLE_FRAME, FEED_CHUNK_FRAMES));
+            ma_uint32 got = want;
+            void *dst = nullptr;
+            if (ma_pcm_rb_acquire_write(m_rb, &got, &dst) != MA_SUCCESS)
+                return false;
+            if (got == 0) { // buffer full (or paused): wait and retry
+                msleep(4);
+                continue;
+            }
+            std::memcpy(dst, data + pos, size_t(got) * BYTES_PER_SAMPLE_FRAME);
+            ma_pcm_rb_commit_write(m_rb, got);
+            pos += qsizetype(got) * BYTES_PER_SAMPLE_FRAME;
+        }
+        return true;
+    }
+
+    void fail(const QString &err)
+    {
+        m_errorText = err;
+        m_failed.store(true);
+    }
+
     QList<Track> m_tracks;
     qint64 m_gapFrames;
     int m_startTrack;

@@ -2,6 +2,8 @@
 
 #include "redbook.h"
 
+#include <cmath>
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -19,6 +21,7 @@ namespace {
 // The Red Book CD-DA target every source is resampled to.
 constexpr int SAMPLE_RATE = 44100;
 constexpr int CHANNELS = 2;
+constexpr int BYTES_PER_SAMPLE_FRAME = CHANNELS * int(sizeof(int16_t)); // 4
 
 QString avError(int code)
 {
@@ -113,73 +116,64 @@ bool probeDuration(const QString &sourcePath, double *outSeconds, QString *error
     return true;
 }
 
-QByteArray decode(const QString &sourcePath, QString *error)
-{
+// -- AudioDecoder -------------------------------------------------------------
+
+struct AudioDecoder::State {
     Format fmt;
-    int stream = -1;
-    if (openAudio(sourcePath, fmt, &stream, error) < 0)
-        return {};
-
-    const AVCodecParameters *par = fmt.ctx->streams[stream]->codecpar;
-    const AVCodec *dec = avcodec_find_decoder(par->codec_id);
-    if (!dec) {
-        if (error)
-            *error = QStringLiteral("no decoder for this audio format");
-        return {};
-    }
-
     Codec codec;
-    codec.ctx = avcodec_alloc_context3(dec);
-    if (!codec.ctx) {
-        if (error)
-            *error = QStringLiteral("out of memory");
-        return {};
-    }
-    int rc = avcodec_parameters_to_context(codec.ctx, par);
-    if (rc >= 0)
-        rc = avcodec_open2(codec.ctx, dec, nullptr);
-    if (rc < 0) {
-        if (error)
-            *error = avError(rc);
-        return {};
-    }
-
-    // Some decoders don't report a channel layout, only a channel count; give
-    // swresample a valid input layout either way.
-    if (codec.ctx->ch_layout.order == AV_CHANNEL_ORDER_UNSPEC)
-        av_channel_layout_default(&codec.ctx->ch_layout,
-                                  codec.ctx->ch_layout.nb_channels);
-
-    // Resample whatever the file is to the Red Book target: 44100 Hz, stereo,
-    // interleaved 16-bit little-endian — exactly the PCM that lands on the disc.
-    AVChannelLayout outLayout;
-    av_channel_layout_default(&outLayout, CHANNELS);
     Resampler swr;
-    rc = swr_alloc_set_opts2(&swr.ctx, &outLayout, AV_SAMPLE_FMT_S16, SAMPLE_RATE,
-                             &codec.ctx->ch_layout, codec.ctx->sample_fmt,
-                             codec.ctx->sample_rate, 0, nullptr);
-    if (rc >= 0)
-        rc = swr_init(swr.ctx);
-    av_channel_layout_uninit(&outLayout);
-    if (rc < 0) {
-        if (error)
-            *error = avError(rc);
-        return {};
-    }
-
     Packet pkt;
     Frame frame;
-    if (!pkt.p || !frame.f) {
-        if (error)
-            *error = QStringLiteral("out of memory");
-        return {};
+    int stream = -1;
+    AVStream *st = nullptr;
+
+    QByteArray pending;   // converted-but-not-yet-returned PCM
+    bool finished = false;
+
+    // Absolute output sample-frame position of the next sample swr will emit, and
+    // the target below which output is dropped after a seek (0 = keep everything).
+    qint64 outPos = 0;
+    qint64 dropTarget = 0;
+    bool needBase = false; // establish outPos from the next frame's PTS
+
+    int rc = 0;
+
+    // Build the resampler for the current codec context. Recreated after a seek
+    // so its filter/delay state starts fresh at the seek point.
+    bool setupResampler()
+    {
+        if (swr.ctx)
+            swr_free(&swr.ctx);
+        AVChannelLayout outLayout;
+        av_channel_layout_default(&outLayout, CHANNELS);
+        int r = swr_alloc_set_opts2(&swr.ctx, &outLayout, AV_SAMPLE_FMT_S16,
+                                    SAMPLE_RATE, &codec.ctx->ch_layout,
+                                    codec.ctx->sample_fmt, codec.ctx->sample_rate,
+                                    0, nullptr);
+        if (r >= 0)
+            r = swr_init(swr.ctx);
+        av_channel_layout_uninit(&outLayout);
+        return r >= 0;
     }
 
-    QByteArray out;
+    // Convert one decoded frame (null flushes swresample), appending its
+    // resampled PCM to pending. After a seek, drops output before dropTarget.
+    bool convert(const AVFrame *in)
+    {
+        if (needBase && in) {
+            int64_t pts = in->best_effort_timestamp;
+            if (pts == AV_NOPTS_VALUE)
+                pts = in->pts;
+            double sec = 0.0;
+            if (pts != AV_NOPTS_VALUE) {
+                const int64_t start =
+                    (st->start_time != AV_NOPTS_VALUE) ? st->start_time : 0;
+                sec = double(pts - start) * av_q2d(st->time_base);
+            }
+            outPos = qint64(std::llround(sec * SAMPLE_RATE));
+            needBase = false;
+        }
 
-    // Convert one decoded frame, appending its resampled PCM. A null frame
-    // flushes swresample's internal delay at end of stream.
-    auto convert = [&](const AVFrame *in) -> bool {
         const int inSamples = in ? in->nb_samples : 0;
         const int64_t delay = swr_get_delay(swr.ctx, SAMPLE_RATE);
         const int64_t maxOut = av_rescale_rnd(delay + inSamples, SAMPLE_RATE,
@@ -193,15 +187,25 @@ QByteArray decode(const QString &sourcePath, QString *error)
             return false;
         const uint8_t **inData = in ? (const uint8_t **)in->extended_data : nullptr;
         const int n = swr_convert(swr.ctx, &buf, int(maxOut), inData, inSamples);
-        if (n > 0)
-            out.append(reinterpret_cast<char *>(buf),
-                       qsizetype(n) * CHANNELS * int(sizeof(int16_t)));
+        if (n > 0) {
+            const qint64 blockStart = outPos;
+            outPos += n;
+            // Drop the part of this block that falls before a seek target.
+            qint64 keepFrom = 0;
+            if (dropTarget > blockStart)
+                keepFrom = qMin<qint64>(dropTarget - blockStart, n);
+            if (keepFrom < n)
+                pending.append(reinterpret_cast<char *>(buf)
+                                   + keepFrom * BYTES_PER_SAMPLE_FRAME,
+                               qsizetype(n - keepFrom) * BYTES_PER_SAMPLE_FRAME);
+        }
         av_freep(&buf);
         return n >= 0;
-    };
+    }
 
     // Feed one packet through the decoder, draining every frame it yields.
-    auto drainDecoder = [&]() -> bool {
+    bool drainDecoder()
+    {
         for (;;) {
             rc = avcodec_receive_frame(codec.ctx, frame.f);
             if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF)
@@ -213,43 +217,179 @@ QByteArray decode(const QString &sourcePath, QString *error)
             if (!ok)
                 return false;
         }
-    };
+    }
 
-    bool ok = true;
-    while (ok && av_read_frame(fmt.ctx, pkt.p) >= 0) {
-        if (pkt.p->stream_index == stream) {
-            rc = avcodec_send_packet(codec.ctx, pkt.p);
-            if (rc < 0)
-                ok = false;
-            else
-                ok = drainDecoder();
+    // Decode packets until pending holds at least targetBytes, or the stream
+    // ends (which flushes the decoder and resampler and sets finished).
+    bool fill(qsizetype targetBytes)
+    {
+        while (!finished && pending.size() < targetBytes) {
+            const int r = av_read_frame(fmt.ctx, pkt.p);
+            if (r < 0) {
+                // End of input: flush the decoder, then the resampler's tail.
+                avcodec_send_packet(codec.ctx, nullptr);
+                if (!drainDecoder())
+                    return false;
+                while (swr_get_delay(swr.ctx, SAMPLE_RATE) > 0) {
+                    const qsizetype before = pending.size();
+                    if (!convert(nullptr))
+                        return false;
+                    if (pending.size() == before) // nothing more came out
+                        break;
+                }
+                finished = true;
+                return true;
+            }
+            bool ok = true;
+            if (pkt.p->stream_index == stream) {
+                rc = avcodec_send_packet(codec.ctx, pkt.p);
+                ok = (rc >= 0) && drainDecoder();
+            }
+            av_packet_unref(pkt.p);
+            if (!ok)
+                return false;
         }
-        av_packet_unref(pkt.p);
+        return true;
     }
-    // Flush: signal end of stream to the decoder, drain it, then flush the
-    // resampler's tail (it may hold a sample or two of delay across a rate
-    // conversion — loop until it has nothing left).
-    if (ok) {
-        avcodec_send_packet(codec.ctx, nullptr);
-        ok = drainDecoder();
+};
+
+AudioDecoder::AudioDecoder() : s(std::make_unique<State>()) {}
+AudioDecoder::~AudioDecoder() = default;
+
+bool AudioDecoder::open(const QString &sourcePath, QString *error)
+{
+    if (openAudio(sourcePath, s->fmt, &s->stream, error) < 0)
+        return false;
+    s->st = s->fmt.ctx->streams[s->stream];
+
+    const AVCodecParameters *par = s->st->codecpar;
+    const AVCodec *dec = avcodec_find_decoder(par->codec_id);
+    if (!dec) {
+        if (error)
+            *error = QStringLiteral("no decoder for this audio format");
+        return false;
     }
-    while (ok && swr_get_delay(swr.ctx, SAMPLE_RATE) > 0) {
-        const qsizetype before = out.size();
-        ok = convert(nullptr);
-        if (out.size() == before) // nothing more came out; avoid spinning
-            break;
+    s->codec.ctx = avcodec_alloc_context3(dec);
+    if (!s->codec.ctx) {
+        if (error)
+            *error = QStringLiteral("out of memory");
+        return false;
+    }
+    int rc = avcodec_parameters_to_context(s->codec.ctx, par);
+    if (rc >= 0)
+        rc = avcodec_open2(s->codec.ctx, dec, nullptr);
+    if (rc < 0) {
+        if (error)
+            *error = avError(rc);
+        return false;
     }
 
-    if (!ok) {
+    // Some decoders don't report a channel layout, only a channel count; give
+    // swresample a valid input layout either way.
+    if (s->codec.ctx->ch_layout.order == AV_CHANNEL_ORDER_UNSPEC)
+        av_channel_layout_default(&s->codec.ctx->ch_layout,
+                                  s->codec.ctx->ch_layout.nb_channels);
+
+    // Resample whatever the file is to the Red Book target: 44100 Hz, stereo,
+    // interleaved 16-bit little-endian — exactly the PCM that lands on the disc.
+    if (!s->setupResampler()) {
         if (error)
-            *error = rc < 0 ? avError(rc)
-                            : QStringLiteral("audio decoding failed");
+            *error = QStringLiteral("could not initialise the resampler");
+        return false;
+    }
+    if (!s->pkt.p || !s->frame.f) {
+        if (error)
+            *error = QStringLiteral("out of memory");
+        return false;
+    }
+    if (error)
+        error->clear();
+    return true;
+}
+
+QByteArray AudioDecoder::read(int maxFrames, QString *error)
+{
+    if (maxFrames <= 0)
+        maxFrames = 1;
+    const qsizetype targetBytes = qsizetype(maxFrames) * BYTES_PER_SAMPLE_FRAME;
+    if (!s->fill(targetBytes)) {
+        if (error)
+            *error = s->rc < 0 ? avError(s->rc)
+                               : QStringLiteral("audio decoding failed");
         return {};
+    }
+    if (error)
+        error->clear();
+    const qsizetype take = qMin<qsizetype>(s->pending.size(), targetBytes);
+    QByteArray out = s->pending.left(take);
+    s->pending.remove(0, take);
+    return out;
+}
+
+bool AudioDecoder::seek(qint64 sampleFrame, QString *error)
+{
+    // libav seeks land on a packet boundary, which is not sample-accurate for
+    // MP3/AAC, so seek a little before the target and decode-drop the rest.
+    constexpr qint64 preRoll = SAMPLE_RATE / 10; // 0.1 s of output
+    const qint64 seekOut = qMax<qint64>(0, sampleFrame - preRoll);
+    const double seconds = double(seekOut) / SAMPLE_RATE;
+    int64_t ts = int64_t(std::llround(seconds / av_q2d(s->st->time_base)));
+    if (s->st->start_time != AV_NOPTS_VALUE)
+        ts += s->st->start_time;
+
+    int rc = av_seek_frame(s->fmt.ctx, s->stream, ts, AVSEEK_FLAG_BACKWARD);
+    if (rc < 0) {
+        if (error)
+            *error = avError(rc);
+        return false;
+    }
+    avcodec_flush_buffers(s->codec.ctx);
+    if (!s->setupResampler()) {
+        if (error)
+            *error = QStringLiteral("could not initialise the resampler");
+        return false;
+    }
+    s->pending.clear();
+    s->finished = false;
+    s->dropTarget = sampleFrame;
+    s->needBase = true;
+    if (error)
+        error->clear();
+    return true;
+}
+
+bool AudioDecoder::atEnd() const
+{
+    return s->finished && s->pending.isEmpty();
+}
+
+QByteArray decode(const QString &sourcePath, QString *error)
+{
+    AudioDecoder dec;
+    if (!dec.open(sourcePath, error))
+        return {};
+
+    // Drain to end of stream in generous chunks; the concatenation is identical
+    // to decoding the whole file at once.
+    QByteArray out;
+    for (;;) {
+        QString err;
+        QByteArray chunk = dec.read(1 << 16, &err);
+        if (!err.isEmpty()) {
+            if (error)
+                *error = err;
+            return {};
+        }
+        if (chunk.isEmpty())
+            break;
+        out.append(chunk);
     }
     if (error)
         error->clear();
     return out;
 }
+
+// -- Gap fitting --------------------------------------------------------------
 
 QByteArray fitGap(QByteArray pcm, const Track &track, bool isLast,
                   qint64 gapFrames)
@@ -273,6 +413,53 @@ QByteArray fitGap(QByteArray pcm, const Track &track, bool isLast,
         pcm.append(delta * BYTES_PER_FRAME, '\0');
     }
     return pcm;
+}
+
+GapProcessor::GapProcessor(const Track &track, bool isLast, qint64 gapFrames,
+                           qint64 startByteOffset)
+    : m_startOffset(startByteOffset)
+{
+    const qint64 desiredGap = isLast ? 0 : gapFrames;
+    const qint64 bakedFrames = secondsToFrames(track.bakedInGap);
+    m_delta = desiredGap - bakedFrames;
+    // Withhold at most what the end might be trimmed (when delta < 0), plus one
+    // sector of slack for the alignment pad, so the tail is always recoverable.
+    const qint64 maxTrim = m_delta < 0 ? -m_delta : 0;
+    m_hold = maxTrim * BYTES_PER_FRAME + BYTES_PER_FRAME;
+}
+
+QByteArray GapProcessor::process(const QByteArray &chunk)
+{
+    m_fed += chunk.size();
+    m_buf.append(chunk);
+    QByteArray out;
+    if (m_buf.size() > m_hold) {
+        const qsizetype release = m_buf.size() - m_hold;
+        out = m_buf.left(release);
+        m_buf.remove(0, release);
+    }
+    return out;
+}
+
+QByteArray GapProcessor::finish()
+{
+    // The full track length (including anything already emitted). Sector-align it
+    // by padding the withheld tail, then trim or pad to hit the target gap.
+    const qint64 total = m_startOffset + m_fed;
+    QByteArray tail = m_buf;
+    const qint64 remainder = total % BYTES_PER_FRAME;
+    if (remainder)
+        tail.append(BYTES_PER_FRAME - remainder, '\0');
+
+    const qint64 alignedTotal = m_startOffset + m_fed + (remainder ? BYTES_PER_FRAME - remainder : 0);
+    if (m_delta < 0) {
+        const qint64 trim = qMin(-m_delta, alignedTotal / BYTES_PER_FRAME);
+        const qint64 chopBytes = qMin<qint64>(trim * BYTES_PER_FRAME, tail.size());
+        tail.chop(chopBytes);
+    } else if (m_delta > 0) {
+        tail.append(m_delta * BYTES_PER_FRAME, '\0');
+    }
+    return tail;
 }
 
 } // namespace programaudio
