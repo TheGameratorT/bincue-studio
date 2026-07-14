@@ -59,6 +59,9 @@ installer with both apps.
   source files via TagLib.
 - Red Book-aware timing: correct lead-in pre-gap, normalised inter-track gaps,
   and a live capacity meter that turns red when you exceed the disc.
+- A built-in **gapless preview player**: hear the whole assembled program —
+  every track, with the exact inter-track gaps — streamed on demand straight
+  from the source files, so you can audition the disc before burning it.
 - One-click **BIN + CUE + cdrdao TOC** export with embedded CD-Text.
 - Burn to a local drive, or to a burner on **another machine over SSH** — the
   image is built locally, uploaded, and written with `cdrdao`.
