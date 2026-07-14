@@ -1,6 +1,6 @@
 # Windows-only deployment: gathers both executables plus their Qt and MinGW
 # runtime DLLs into build/dist, and adds the `installer` target that packs
-# dist into a QtIFW setup exe. Included from the top-level CMakeLists inside
+# dist into an NSIS setup exe. Included from the top-level CMakeLists inside
 # if(WIN32).
 
 set(DIST_DIR "${CMAKE_BINARY_DIR}/dist")
@@ -117,5 +117,5 @@ add_custom_target(installer
         -DAPP_VERSION=${PROJECT_VERSION}
         -P "${CMAKE_SOURCE_DIR}/installer/build_installer.cmake"
     DEPENDS deploy
-    COMMENT "Building Windows installer with Qt Installer Framework"
+    COMMENT "Building Windows installer with NSIS"
     VERBATIM)

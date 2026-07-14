@@ -89,7 +89,7 @@ jobs:
           mingw-w64-x86_64-qt6-svg
           mingw-w64-x86_64-qt6-tools
           mingw-w64-x86_64-taglib
-          mingw-w64-x86_64-qt-installer-framework
+          mingw-w64-x86_64-nsis
     - uses: actions/checkout@v7
       with:
         path: bincue-studio

@@ -40,7 +40,7 @@ add_subdirectory(src)      # the BinCue Studio application
 add_subdirectory(cdlabel)  # the CD label editor (also builds standalone)
 
 # Windows: `deploy` gathers both exes + runtime DLLs into build/dist,
-# `installer` packs dist into a QtIFW setup exe (see .github/workflows).
+# `installer` packs dist into an NSIS setup exe (see .github/workflows).
 if(WIN32)
     include(installer/windows.cmake)
 endif()
