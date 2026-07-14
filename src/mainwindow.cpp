@@ -54,6 +54,7 @@
 namespace {
 
 enum Column {
+    ColPlay,
     ColTitle,
     ColPerformer,
     ColDuration,
@@ -464,10 +465,11 @@ void MainWindow::buildUi()
 
     // Track table. The vertical header doubles as the track number.
     m_table = new QTableWidget(0, ColumnCount);
-    m_table->setHorizontalHeaderLabels({tr("Title"), tr("Performer"),
+    m_table->setHorizontalHeaderLabels({QString(), tr("Title"), tr("Performer"),
                                         tr("Duration"), tr("Baked-in Gap"),
                                         tr("Actions")});
     QHeaderView *header = m_table->horizontalHeader();
+    header->setSectionResizeMode(ColPlay, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(ColTitle, QHeaderView::Stretch);
     header->setSectionResizeMode(ColPerformer, QHeaderView::Stretch);
     header->setSectionResizeMode(ColDuration, QHeaderView::ResizeToContents);
@@ -525,6 +527,7 @@ void MainWindow::buildUi()
     // slider handle at every track change. Fix the width and elide instead.
     m_nowPlayingLabel->setFixedWidth(
         m_nowPlayingLabel->fontMetrics().averageCharWidth() * 36);
+    setNowPlayingIdle();
 
     playerRow->addWidget(m_prevBtn);
     playerRow->addWidget(m_playPauseBtn);
@@ -556,13 +559,6 @@ void MainWindow::buildUi()
         }
     });
 
-    // Start playback at the double-clicked track.
-    connect(m_table, &QTableWidget::cellDoubleClicked, this,
-            [this](int row, int) {
-                m_player->seekToTrack(row);
-                if (m_player->state() != PlaybackEngine::State::Playing)
-                    m_player->play();
-            });
     // While stopped, selecting a row arms Play to begin there.
     connect(m_table->selectionModel(), &QItemSelectionModel::currentRowChanged,
             this, [this](const QModelIndex &current) {
@@ -590,6 +586,7 @@ void MainWindow::buildUi()
                 m_playPauseBtn->setIcon(qApp->style()->standardIcon(
                     playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
                 m_stopBtn->setEnabled(state != PlaybackEngine::State::Stopped);
+                updatePlayButtons();
             });
     connect(m_player, &PlaybackEngine::positionChanged, this,
             [this](qint64 pos, qint64 total) {
@@ -602,9 +599,9 @@ void MainWindow::buildUi()
             });
     connect(m_player, &PlaybackEngine::currentTrackChanged, this,
             [this](int index) {
+                updatePlayButtons();
                 if (index < 0 || index >= m_tracks.size()) {
-                    m_nowPlayingLabel->clear();
-                    m_nowPlayingLabel->setToolTip(QString());
+                    setNowPlayingIdle();
                     return;
                 }
                 const Track &t = m_tracks[index];
@@ -615,6 +612,7 @@ void MainWindow::buildUi()
                                             : t.title);
                 if (!t.performer.isEmpty())
                     text += QStringLiteral(" — %1").arg(t.performer);
+                m_nowPlayingLabel->setEnabled(true);
                 m_nowPlayingLabel->setToolTip(text);
                 m_nowPlayingLabel->setText(m_nowPlayingLabel->fontMetrics().elidedText(
                     text, Qt::ElideRight, m_nowPlayingLabel->width()));
@@ -751,8 +749,28 @@ void MainWindow::refreshTable()
 {
     m_table->blockSignals(true);
     m_table->setRowCount(int(m_tracks.size()));
+    // Rebuilt row by row below; the old buttons are destroyed with their cells.
+    m_playButtons.clear();
     for (int row = 0; row < m_tracks.size(); ++row) {
         const Track &track = m_tracks[row];
+
+        // Play from this track. On the track that's already active it doubles as
+        // a play/pause toggle; double-clicking a field must never start audio.
+        auto *playBtn = new QToolButton;
+        playBtn->setAutoRaise(true);
+        playBtn->setToolTip(tr("Play from this track"));
+        connect(playBtn, &QToolButton::clicked, this, [this, row] {
+            if (m_player->currentTrack() == row
+                && m_player->state() != PlaybackEngine::State::Stopped) {
+                m_player->togglePlayPause();
+            } else {
+                m_player->seekToTrack(row);
+                if (m_player->state() != PlaybackEngine::State::Playing)
+                    m_player->play();
+            }
+        });
+        m_table->setCellWidget(row, ColPlay, playBtn);
+        m_playButtons.append(playBtn);
 
         auto *titleItem = new QTableWidgetItem(track.title);
         auto *perfItem = new QTableWidgetItem(track.performer);
@@ -835,7 +853,33 @@ void MainWindow::refreshTable()
         m_table->setCellWidget(row, ColActions, actions);
     }
     m_table->blockSignals(false);
+    updatePlayButtons();
     updateCapacity();
+}
+
+// Point each row's play button at the right glyph: a pause icon on the track
+// that's currently playing, a play icon everywhere else.
+void MainWindow::updatePlayButtons()
+{
+    auto *style = qApp->style();
+    const int current = m_player->currentTrack();
+    const bool playing = m_player->state() == PlaybackEngine::State::Playing;
+    for (int row = 0; row < m_playButtons.size(); ++row) {
+        const bool active = row == current
+            && m_player->state() != PlaybackEngine::State::Stopped;
+        m_playButtons[row]->setIcon(style->standardIcon(
+            (active && playing) ? QStyle::SP_MediaPause
+                                : QStyle::SP_MediaPlay));
+    }
+}
+
+// Muted placeholder for the now-playing readout so the transport row never
+// looks broken-empty when playback is stopped.
+void MainWindow::setNowPlayingIdle()
+{
+    m_nowPlayingLabel->setEnabled(false);
+    m_nowPlayingLabel->setToolTip(QString());
+    m_nowPlayingLabel->setText(tr("Nothing playing"));
 }
 
 QList<int> MainWindow::selectedRows() const

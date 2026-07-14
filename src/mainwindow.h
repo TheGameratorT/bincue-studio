@@ -51,6 +51,8 @@ private:
     QJsonObject gatherProjectJson() const;
     void writeProject(const QString &path);
     void refreshTable();
+    void updatePlayButtons();
+    void setNowPlayingIdle();
     QList<int> selectedRows() const;
     void setExportEnabled(bool enabled);
     void syncPlayerProgram();
@@ -126,5 +128,6 @@ private:
     QLabel *m_posLabel = nullptr;
     QLabel *m_totalLabel = nullptr;
     QLabel *m_nowPlayingLabel = nullptr;
+    QList<QToolButton *> m_playButtons; // one per row, in ColPlay
     bool m_sliderHeld = false;
 };
