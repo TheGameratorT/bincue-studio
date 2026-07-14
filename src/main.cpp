@@ -12,7 +12,7 @@
 //     or filled to hit that gap (0 after the last track). Every track from
 //     the second onward is then marked with that gap as its pregap
 //     (INDEX 00 = INDEX 01 - gap) per the Red Book convention. Track 1 gets a
-//     separate lead-in "Pre-gap" (PREGAP), which the Red Book fixes at 2s.
+//     separate "Pre-gap" (PREGAP), which the Red Book fixes at 2s.
 //   - A live capacity meter comparing total programme time against a 74 or
 //     80 minute disc.
 //   - Save/Open Project (JSON) — the same format the legacy Python app used.

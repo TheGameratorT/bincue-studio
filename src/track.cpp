@@ -53,7 +53,7 @@ qint64 totalProgramFrames(const QList<Track> &tracks, double pregapSeconds,
 {
     const qint64 pregapFrames = redbook::secondsToFrames(pregapSeconds);
     const qint64 gapFrames = redbook::secondsToFrames(gapSeconds);
-    qint64 total = tracks.isEmpty() ? 0 : pregapFrames;  // track 1 lead-in
+    qint64 total = tracks.isEmpty() ? 0 : pregapFrames;  // track 1 pre-gap
     for (qsizetype i = 0; i < tracks.size(); ++i) {
         const Track &t = tracks[i];
         const bool isLast = (i == tracks.size() - 1);

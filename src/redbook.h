@@ -9,8 +9,8 @@ namespace redbook {
 constexpr int FRAME_RATE = 75;         // CD "frames" (sectors) per second
 constexpr int BYTES_PER_FRAME = 2352;  // raw CD-DA audio sector size
 
-constexpr double DEFAULT_PREGAP_SECONDS = 2.0;  // track 1 lead-in PREGAP
-constexpr double REDBOOK_PREGAP_SECONDS = 2.0;  // the standard lead-in; anything else is off-spec
+constexpr double DEFAULT_PREGAP_SECONDS = 2.0;  // track 1 pre-gap (PREGAP)
+constexpr double REDBOOK_PREGAP_SECONDS = 2.0;  // the standard track 1 pre-gap; anything else is off-spec
 constexpr double DEFAULT_GAP_SECONDS = 2.0;     // gap every track ends up with (0 after the last)
 constexpr double DEFAULT_BAKED_GAP_SECONDS = 2.0;  // trailing silence a fresh source is assumed to have
 

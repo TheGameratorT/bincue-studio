@@ -57,7 +57,7 @@ installer with both apps.
 - Drag-and-drop track ordering with per-disc and per-track metadata.
 - Automatic tag import (title, performer, songwriter, ISRC, cover art) from the
   source files via TagLib.
-- Red Book-aware timing: correct lead-in pre-gap, normalised inter-track gaps,
+- Red Book-aware timing: correct track 1 pre-gap, normalised inter-track gaps,
   and a live capacity meter that turns red when you exceed the disc.
 - A built-in **gapless preview player**: hear the whole assembled program —
   every track, with the exact inter-track gaps — streamed on demand straight
@@ -77,8 +77,8 @@ Most fields are self-explanatory metadata. The ones specific to CD mastering:
 | **Catalog (UPC)** | The disc's Media Catalog Number — a 13-digit UPC/EAN barcode. Written as `CATALOG` in the cue sheet; ignored unless it is exactly 13 digits. Optional. |
 | **ISRC** (per track) | The 12-character International Standard Recording Code identifying each recording. Auto-filled from the source's tags when present. Optional. |
 | **Disc size** | The blank's capacity — **74 min (~650 MB)** or **80 min (~700 MB)** — which sets where the capacity meter tops out. |
-| **Pre-gap (lead-in)** | The silent gap (`PREGAP`) before track 1. The Red Book fixes this at **2 s**; other values are off-spec and may not play back reliably (a ⚠ appears if you change it). |
-| **Gap between tracks** | The gap every track ends up with (0 after the last). Unlike the lead-in, this is only a *convention*, not enforced by the Red Book — set it to `0 s` for a gapless album, or trim it to reclaim a few seconds when a disc is just over capacity. |
+| **Pre-gap** | The silent gap (`PREGAP`) before track 1. The Red Book fixes this at **2 s**; other values are off-spec and may not play back reliably (a ⚠ appears if you change it). |
+| **Gap between tracks** | The gap every track ends up with (0 after the last). Unlike track 1's pre-gap, this is only a *convention*, not enforced by the Red Book — set it to `0 s` for a gapless album, or trim it to reclaim a few seconds when a disc is just over capacity. |
 | **Baked-in Gap** (per track) | Trailing silence a source file *already contains*. On export each track's baked-in gap is trimmed or padded so the real gap matches "Gap between tracks", so pre-existing silence is never double-counted. |
 | **Fill from Selected Track…** | Copies album title, performer, songwriter, genre, year and catalog from the selected track's tags into the disc-wide fields. |
 

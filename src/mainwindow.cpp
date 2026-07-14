@@ -368,14 +368,14 @@ void MainWindow::buildUi()
     m_pregapSpin->setSuffix(tr(" s"));
     m_pregapSpin->setValue(redbook::DEFAULT_PREGAP_SECONDS);
     m_pregapSpin->setToolTip(
-        tr("Track 1 lead-in pregap (PREGAP). The Red Book fixes this at 2s; "
+        tr("Track 1 pre-gap (PREGAP). The Red Book fixes this at 2s; "
            "other values are off-spec and may not play back reliably."));
     connect(m_pregapSpin, &QDoubleSpinBox::valueChanged, this,
             &MainWindow::updateCapacity);
     connect(m_pregapSpin, &QDoubleSpinBox::valueChanged, this,
             &MainWindow::updatePregapWarning);
 
-    // Warning shown when the lead-in pregap is pushed off the 2s Red Book
+    // Warning shown when the track 1 pre-gap is pushed off the 2s Red Book
     // standard. A flat clickable button that explains itself when pressed.
     m_pregapWarnBtn = new QToolButton;
     m_pregapWarnBtn->setText(QStringLiteral("⚠"));
@@ -404,7 +404,7 @@ void MainWindow::buildUi()
             &MainWindow::updateCapacity);
 
     // Always-visible info hint: the inter-track gap defaults to 2s but, unlike
-    // the lead-in pregap, isn't fixed by the Red Book, so it can be trimmed to
+    // the track 1 pre-gap, isn't fixed by the Red Book, so it can be trimmed to
     // reclaim program time. A flat clickable button that explains on press.
     m_gapInfoBtn = new QToolButton;
     m_gapInfoBtn->setText(QStringLiteral("ⓘ"));
@@ -1241,14 +1241,14 @@ void MainWindow::fillDiscInfoFromTrack()
 
 void MainWindow::updatePregapWarning()
 {
-    // Flag a lead-in pregap that has drifted off the 2s Red Book value.
+    // Flag a track 1 pre-gap that has drifted off the 2s Red Book value.
     const bool offSpec =
         std::abs(m_pregapSpin->value() - redbook::REDBOOK_PREGAP_SECONDS)
         > 1e-9;
     m_pregapWarnBtn->setVisible(offSpec);
     if (offSpec)
         m_pregapWarnBtn->setToolTip(
-            tr("Off-spec: the Red Book fixes the lead-in pregap at %1s. "
+            tr("Off-spec: the Red Book fixes the track 1 pre-gap at %1s. "
                "Click for details.")
                 .arg(redbook::REDBOOK_PREGAP_SECONDS));
 }
@@ -1256,11 +1256,11 @@ void MainWindow::updatePregapWarning()
 void MainWindow::showPregapWarning()
 {
     QMessageBox::warning(
-        this, tr("Non-standard lead-in pregap"),
-        tr("The Red Book standard fixes track 1's lead-in pregap (PREGAP) at "
+        this, tr("Non-standard track 1 pre-gap"),
+        tr("The Red Book standard fixes track 1's pre-gap (PREGAP) at "
            "%1 seconds. A value above 2s is against the standard, and other "
            "values may not be honoured by every player or burner.\n\nThis "
-           "only affects the lead-in before track 1 — the gap between tracks "
+           "only affects the pre-gap before track 1 — the gap between tracks "
            "is set separately by \"Gap between tracks\".")
             .arg(redbook::REDBOOK_PREGAP_SECONDS));
 }
@@ -1270,7 +1270,7 @@ void MainWindow::showGapInfo()
     QMessageBox::information(
         this, tr("Gap between tracks"),
         tr("The standard gap between tracks is %1 seconds, and that's the "
-           "default here. Unlike track 1's lead-in pregap, though, this gap "
+           "default here. Unlike track 1's pre-gap, though, this gap "
            "isn't fixed by the Red Book — it's only a convention, and players "
            "and burners honour whatever you set (0s gives a gapless "
            "album).\n\nSo if a disc is just a few seconds over its capacity, "

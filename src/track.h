@@ -37,6 +37,6 @@ struct Track {
 };
 
 // Total CD frames after trimming/filling each track's baked-in gap to the
-// inter-track gap (0 after the last track), plus track 1's lead-in pre-gap.
+// inter-track gap (0 after the last track), plus track 1's pre-gap.
 qint64 totalProgramFrames(const QList<Track> &tracks, double pregapSeconds,
                           double gapSeconds);
