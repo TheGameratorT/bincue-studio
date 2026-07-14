@@ -117,4 +117,11 @@ void applyTrackFill(Params &p, const Field &f, const QString &v)
             t.*(f.track) = v;
 }
 
+void dropField(Params &p, const Field &f)
+{
+    p.*(f.disc) = QString();
+    for (Track &t : p.tracks)
+        t.*(f.track) = QString();
+}
+
 }  // namespace cdtext

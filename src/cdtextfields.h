@@ -57,4 +57,10 @@ bool needsAttention(const ExportWorker::Params &p, const Field &f);
 // completion. Leaves the disc value and any track that already has one alone.
 void applyTrackFill(ExportWorker::Params &p, const Field &f, const QString &v);
 
+// Clear the pack entirely — the disc value and every track — so it drops out of
+// the CD-Text altogether (an absent pack is the other half of cdrdao's
+// all-or-nothing rule). Never valid for a mandatory pack while any CD-Text
+// remains; callers gate on that.
+void dropField(ExportWorker::Params &p, const Field &f);
+
 }  // namespace cdtext

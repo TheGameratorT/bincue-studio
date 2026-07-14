@@ -1071,6 +1071,23 @@ ExportWorker::Params MainWindow::gatherMetadataParams() const
     return p;
 }
 
+void MainWindow::applyCdTextToProject(const ExportWorker::Params &params)
+{
+    // The completion prompt only ever fills blank tracks or drops a whole
+    // non-mandatory pack, so the fills all ride in params.tracks and the only
+    // disc values it can have cleared are the non-mandatory ones. Title and
+    // Performer are never dropped, so their disc edits are left untouched.
+    m_tracks = params.tracks;
+    m_albumSongwriterEdit->setText(params.albumSongwriter);
+    m_albumComposer = params.albumComposer;
+    m_albumArranger = params.albumArranger;
+    m_albumMessage = params.albumMessage;
+
+    refreshTable();
+    markDirty();
+    updateCdTextWarnings();
+}
+
 void MainWindow::updateCdTextWarnings()
 {
     if (!m_titleErrBtn)
@@ -1655,8 +1672,11 @@ void MainWindow::exportProject()
     // blocking "disc info incomplete" warning or the track-fill prompt comes up
     // before the folder picker, not after. Cancelling here abandons the export.
     ExportWorker::Params params = gatherMetadataParams();
-    if (!ensureCdTextComplete(params, this))
+    const CdTextChoice choice = ensureCdTextComplete(params, this);
+    if (!choice.proceed)
         return;
+    if (choice.applyToProject)
+        applyCdTextToProject(params);
 
     const QString outDir = QFileDialog::getExistingDirectory(
         this, tr("Choose output folder"));
@@ -1729,8 +1749,11 @@ void MainWindow::burnProject()
     // blocking "disc info incomplete" warning or the track-fill prompt comes up
     // before the burn-setup dialog, not after. Cancelling abandons the burn.
     ExportWorker::Params params = gatherMetadataParams();
-    if (!ensureCdTextComplete(params, this))
+    const CdTextChoice choice = ensureCdTextComplete(params, this);
+    if (!choice.proceed)
         return;
+    if (choice.applyToProject)
+        applyCdTextToProject(params);
 
     BurnSetupDialog setup(this);
     if (setup.exec() != QDialog::Accepted)

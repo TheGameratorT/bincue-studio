@@ -1,16 +1,18 @@
 #include "cdtextcompletion.h"
 
-#include <utility>
 #include <vector>
 
+#include <QCheckBox>
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QStringList>
 #include <QVBoxLayout>
 
@@ -51,15 +53,34 @@ bool blockOnMissingDiscInfo(const ExportWorker::Params &params, QWidget *parent)
 
 }  // namespace
 
-bool ensureCdTextComplete(ExportWorker::Params &params, QWidget *parent)
+namespace {
+
+// One field's controls: fill it with `edit`'s text, or (for a non-mandatory
+// field) drop it when `drop` is checked. `drop` is null for a mandatory pack,
+// which can never be dropped while any CD-Text remains.
+struct Row {
+    const cdtext::Field *field;
+    QLineEdit *edit;
+    QRadioButton *drop;
+
+    bool dropping() const { return drop && drop->isChecked(); }
+    // Satisfied means it won't recreate the gap cdrdao rejects: either dropped,
+    // or filled with a non-empty value.
+    bool satisfied() const { return dropping() || !edit->text().trimmed().isEmpty(); }
+};
+
+}  // namespace
+
+CdTextChoice ensureCdTextComplete(ExportWorker::Params &params, QWidget *parent)
 {
     // Phase 1 — a blank disc value the user must fix themselves stops us here.
     if (blockOnMissingDiscInfo(params, parent))
-        return false;
+        return {};
 
     // Phase 2 — the disc values are all set; only some tracks are missing theirs.
     // Offer a per-track fill value (separate from the disc value, so the disc can
-    // read "Various Artists" while each track reads "Unknown Artist").
+    // read "Various Artists" while each track reads "Unknown Artist"), or dropping
+    // the whole field so it isn't burned at all.
     std::vector<const cdtext::Field *> todo;
     for (int i = 0; i < cdtext::PackCount; ++i) {
         const cdtext::Field &f = cdtext::field(cdtext::Pack(i));
@@ -68,59 +89,108 @@ bool ensureCdTextComplete(ExportWorker::Params &params, QWidget *parent)
             todo.push_back(&f);
     }
     if (todo.empty())
-        return true;  // fully consistent — nothing to ask
+        return {true, false};  // fully consistent — nothing to ask
 
     QDialog dlg(parent);
     dlg.setWindowTitle(tr("Complete track CD-Text"));
-    dlg.setMinimumWidth(500);
+    dlg.setMinimumWidth(460);
     auto *root = new QVBoxLayout(&dlg);
 
     auto *intro = new QLabel(
-        tr("Some tracks are missing CD-Text that the disc has, and cdrdao needs "
-           "each field on every track. Enter the value to put on the tracks that "
-           "lack one — it can differ from the disc value shown."));
+        tr("These fields are filled in for the disc as a whole but are missing "
+           "on some tracks, and a CD needs the same fields on every track. For "
+           "each one, put a value on the tracks that lack it — or drop the field "
+           "so it isn’t written to the CD at all."));
     intro->setWordWrap(true);
     root->addWidget(intro);
 
-    auto *form = new QFormLayout;
-    std::vector<std::pair<const cdtext::Field *, QLineEdit *>> rows;
+    const int total = int(params.tracks.size());
+    std::vector<Row> rows;
     for (const cdtext::Field *f : todo) {
-        auto *edit = new QLineEdit(tr(f->unknown));
-        auto *label = new QLabel(
-            tr("%1  —  disc “%2”, blank on %3 of %4 tracks")
-                .arg(tr(f->label), cdtext::discValue(params, *f))
-                .arg(cdtext::blankTrackCount(params, *f))
-                .arg(params.tracks.size()));
-        form->addRow(label, edit);
-        rows.emplace_back(f, edit);
+        auto *group = new QGroupBox(tr(f->label));
+        auto *box = new QVBoxLayout(group);
+
+        const int blank = cdtext::blankTrackCount(params, *f);
+        const QString disc = cdtext::discValue(params, *f);
+        auto *context = new QLabel(
+            blank == 1
+                ? tr("1 of %1 tracks has none of its own. The disc is “%2”.")
+                      .arg(total)
+                      .arg(disc)
+                : tr("%1 of %2 tracks have none of their own. The disc is "
+                     "“%3”.")
+                      .arg(blank)
+                      .arg(total)
+                      .arg(disc));
+        context->setWordWrap(true);
+        box->addWidget(context);
+
+        Row row{f, new QLineEdit(tr(f->unknown)), nullptr};
+
+        // A mandatory pack (Title/Performer) can't be dropped while other CD-Text
+        // exists, so it gets only the fill row; everything else offers the choice.
+        if (f->mandatory) {
+            auto *fill = new QHBoxLayout;
+            fill->addWidget(new QLabel(tr("Put on those tracks:")));
+            fill->addWidget(row.edit);
+            box->addLayout(fill);
+        } else {
+            auto *fillBtn = new QRadioButton(tr("Put on those tracks:"));
+            fillBtn->setChecked(true);
+            row.drop = new QRadioButton(tr("Don’t burn this field"));
+
+            auto *fill = new QHBoxLayout;
+            fill->addWidget(fillBtn);
+            fill->addWidget(row.edit);
+            box->addLayout(fill);
+            box->addWidget(row.drop);
+
+            // Grey the value out while the field is being dropped — it's ignored.
+            QObject::connect(row.drop, &QRadioButton::toggled, row.edit,
+                             &QWidget::setDisabled);
+        }
+
+        root->addWidget(group);
+        rows.push_back(row);
     }
-    root->addLayout(form);
+
+    auto *applyChk = new QCheckBox(
+        tr("Also save these changes to the project"));
+    root->addWidget(applyChk);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok
                                          | QDialogButtonBox::Cancel);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Continue"));
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg,
                      &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg,
                      &QDialog::reject);
     root->addWidget(buttons);
 
-    // A blank would just recreate the gap cdrdao rejects, so Ok stays disabled
-    // until every row has a value.
+    // A blank fill would just recreate the gap cdrdao rejects, so Ok stays
+    // disabled until every row is either dropped or filled.
     auto *ok = buttons->button(QDialogButtonBox::Ok);
-    auto refreshOk = [ok, rows] {
-        bool allFilled = true;
-        for (const auto &[f, edit] : rows)
-            allFilled = allFilled && !edit->text().trimmed().isEmpty();
-        ok->setEnabled(allFilled);
+    auto refreshOk = [ok, &rows] {
+        bool ready = true;
+        for (const Row &r : rows)
+            ready = ready && r.satisfied();
+        ok->setEnabled(ready);
     };
-    for (const auto &[f, edit] : rows)
-        QObject::connect(edit, &QLineEdit::textChanged, &dlg, refreshOk);
+    for (const Row &r : rows) {
+        QObject::connect(r.edit, &QLineEdit::textChanged, &dlg, refreshOk);
+        if (r.drop)
+            QObject::connect(r.drop, &QRadioButton::toggled, &dlg, refreshOk);
+    }
     refreshOk();
 
     if (dlg.exec() != QDialog::Accepted)
-        return false;
+        return {};
 
-    for (const auto &[f, edit] : rows)
-        cdtext::applyTrackFill(params, *f, edit->text().trimmed());
-    return true;
+    for (const Row &r : rows) {
+        if (r.dropping())
+            cdtext::dropField(params, *r.field);
+        else
+            cdtext::applyTrackFill(params, *r.field, r.edit->text().trimmed());
+    }
+    return {true, applyChk->isChecked()};
 }

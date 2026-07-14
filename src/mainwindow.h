@@ -75,6 +75,10 @@ private:
     // used both to gather for a burn/export and to feed the shared cdtext model
     // that drives the warning badges.
     ExportWorker::Params gatherMetadataParams() const;
+    // Write the CD-Text fills/drops the completion prompt settled on `params`
+    // back into the real project (tracks + disc fields), for when the user asks
+    // to keep them rather than apply them to that one burn/export only.
+    void applyCdTextToProject(const ExportWorker::Params &params);
     // Refresh every CD-Text ⚠ badge (the Title/Performer/Songwriter panel ones
     // and the Disc Details button) from the shared cdtext model, so they all
     // flag a partial pack the same way the completion prompt would.

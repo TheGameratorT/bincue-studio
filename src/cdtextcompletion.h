@@ -13,14 +13,22 @@ class QWidget;
 //
 // ensureCdTextComplete() finds those partially used pack types (and the
 // Title/Performer that become mandatory once any CD-Text exists) and, if any,
-// asks the user to complete them before the burn/export runs. Each field gets
-// an editable value defaulting to "Unknown …" (or the disc/common value when
-// there is one); the dialog only ever *fills* the missing slots, so nothing the
-// user already entered is discarded, and every field must be non-empty to
-// proceed (Ok is disabled otherwise). The choices are applied to `params` in
-// place — its own tracks copy, never the user's project — and the disc-level
+// asks the user to settle them before the burn/export runs. For each field the
+// user either fills the missing slots (editable value, defaulting to
+// "Unknown …") or, for a non-mandatory field, drops it entirely so it isn't
+// burned at all — the two halves of cdrdao's all-or-nothing rule. The choices
+// are applied to `params` in place (its own tracks copy) and the disc-level
 // composer/arranger/message land in the Params fields buildToc reads.
 //
-// Returns true to proceed (including the no-op case where nothing needed
-// fixing, when no dialog is shown), or false if the user cancelled.
-bool ensureCdTextComplete(ExportWorker::Params &params, QWidget *parent);
+// By default nothing touches the user's project — the edits ride only on the
+// burn/export copy. If the user ticks "apply to the project" the same edits
+// should be written back to the real model; the result reports that so the
+// caller can do it (see MainWindow::applyCdTextToProject).
+struct CdTextChoice {
+    bool proceed = false;         // false ⇒ the user cancelled; abandon the run
+    bool applyToProject = false;  // true ⇒ also persist the edits to the project
+};
+
+// Never shows a dialog when nothing needs fixing — returns {proceed=true} so the
+// run continues untouched.
+CdTextChoice ensureCdTextComplete(ExportWorker::Params &params, QWidget *parent);
