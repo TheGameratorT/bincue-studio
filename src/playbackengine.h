@@ -4,10 +4,12 @@
 #include <QObject>
 #include <QVector>
 
+#include <functional>
 #include <memory>
 
 #include "track.h"
 
+class QThread;
 class QTimer;
 
 // Streams the assembled program (every track, sector-aligned, with the exact
@@ -61,6 +63,14 @@ private:
     struct Impl;
     class DecodeThread;
 
+    // Run a miniaudio device call on m_audioThread and wait for it. Every
+    // ma_device_init/start/stop/uninit goes through here so miniaudio's COM
+    // init (WASAPI, on Windows) lands on that thread, never the GUI thread —
+    // otherwise miniaudio flips the GUI thread to the multithreaded COM
+    // apartment and Qt's native dialogs (Export's folder picker, the burn
+    // setup) crash the next time they open.
+    bool runOnAudio(const std::function<bool()> &fn);
+
     bool ensureDevice();
     void startDecoder(qint64 startFrame);
     void teardownDecoder();
@@ -75,6 +85,8 @@ private:
     std::unique_ptr<Impl> d;
     DecodeThread *m_decoder = nullptr;
     QTimer *m_poll = nullptr;
+    QThread *m_audioThread = nullptr; // owns every miniaudio device COM call
+    QObject *m_audioCtl = nullptr;    // lives on m_audioThread; the invoke target
 
     QList<Track> m_tracks;
     qint64 m_gapFrames = 0;             // inter-track gap, in CD frames

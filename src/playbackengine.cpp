@@ -169,17 +169,49 @@ PlaybackEngine::PlaybackEngine(QObject *parent)
     m_poll = new QTimer(this);
     m_poll->setInterval(100);
     connect(m_poll, &QTimer::timeout, this, &PlaybackEngine::poll);
+
+    // A dedicated thread that owns every miniaudio device call. On Windows this
+    // keeps miniaudio's WASAPI COM initialisation (MTA) off the GUI thread, so
+    // Qt can still put the GUI thread in the STA apartment its native dialogs
+    // need. m_audioCtl only exists to give runOnAudio() a target with this
+    // thread's affinity.
+    m_audioThread = new QThread;
+    m_audioThread->setObjectName(QStringLiteral("bincue-audio"));
+    m_audioCtl = new QObject;
+    m_audioCtl->moveToThread(m_audioThread);
+    m_audioThread->start();
 }
 
 PlaybackEngine::~PlaybackEngine()
 {
-    if (d->deviceReady)
-        ma_device_stop(&d->device);
+    runOnAudio([&] {
+        if (d->deviceReady)
+            ma_device_stop(&d->device);
+        return true;
+    });
     teardownDecoder();
-    if (d->deviceReady)
-        ma_device_uninit(&d->device);
+    runOnAudio([&] {
+        if (d->deviceReady) {
+            ma_device_uninit(&d->device);
+            d->deviceReady = false;
+        }
+        return true;
+    });
     if (d->rbReady)
         ma_pcm_rb_uninit(&d->rb);
+
+    m_audioThread->quit();
+    m_audioThread->wait();
+    delete m_audioCtl;
+    delete m_audioThread;
+}
+
+bool PlaybackEngine::runOnAudio(const std::function<bool()> &fn)
+{
+    bool ret = false;
+    QMetaObject::invokeMethod(m_audioCtl, [&] { ret = fn(); },
+                              Qt::BlockingQueuedConnection);
+    return ret;
 }
 
 qint64 PlaybackEngine::msToFrame(qint64 ms) const
@@ -261,16 +293,18 @@ bool PlaybackEngine::ensureDevice()
         d->rbReady = true;
     }
 
-    ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-    cfg.playback.format = ma_format_s16;
-    cfg.playback.channels = CHANNELS;
-    cfg.sampleRate = SAMPLE_RATE;
-    cfg.dataCallback = &Impl::callback;
-    cfg.pUserData = d.get();
-    if (ma_device_init(nullptr, &cfg, &d->device) != MA_SUCCESS)
-        return false;
-    d->deviceReady = true;
-    return true;
+    return runOnAudio([&] {
+        ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+        cfg.playback.format = ma_format_s16;
+        cfg.playback.channels = CHANNELS;
+        cfg.sampleRate = SAMPLE_RATE;
+        cfg.dataCallback = &Impl::callback;
+        cfg.pUserData = d.get();
+        if (ma_device_init(nullptr, &cfg, &d->device) != MA_SUCCESS)
+            return false;
+        d->deviceReady = true;
+        return true;
+    });
 }
 
 void PlaybackEngine::startDecoder(qint64 startFrame)
@@ -317,7 +351,8 @@ void PlaybackEngine::play()
         return;
 
     if (m_state == State::Paused) {
-        if (ma_device_start(&d->device) != MA_SUCCESS) {
+        if (!runOnAudio(
+                [&] { return ma_device_start(&d->device) == MA_SUCCESS; })) {
             emit errorOccurred(tr("Could not resume audio playback."));
             return;
         }
@@ -330,7 +365,7 @@ void PlaybackEngine::play()
         return;
     }
     startDecoder(m_startFrame);
-    if (ma_device_start(&d->device) != MA_SUCCESS) {
+    if (!runOnAudio([&] { return ma_device_start(&d->device) == MA_SUCCESS; })) {
         teardownDecoder();
         emit errorOccurred(tr("Could not start audio playback."));
         return;
@@ -342,7 +377,10 @@ void PlaybackEngine::pause()
 {
     if (m_state != State::Playing)
         return;
-    ma_device_stop(&d->device);
+    runOnAudio([&] {
+        ma_device_stop(&d->device);
+        return true;
+    });
     setState(State::Paused);
 }
 
@@ -357,8 +395,11 @@ void PlaybackEngine::togglePlayPause()
 void PlaybackEngine::stop()
 {
     const bool wasActive = (m_state != State::Stopped);
-    if (d->deviceReady)
-        ma_device_stop(&d->device);
+    runOnAudio([&] {
+        if (d->deviceReady)
+            ma_device_stop(&d->device);
+        return true;
+    });
     teardownDecoder();
     if (d->rbReady)
         ma_pcm_rb_reset(&d->rb);
@@ -393,11 +434,14 @@ void PlaybackEngine::seek(qint64 positionMs)
     }
 
     const State prev = m_state;
-    if (d->deviceReady)
-        ma_device_stop(&d->device);
+    runOnAudio([&] {
+        if (d->deviceReady)
+            ma_device_stop(&d->device);
+        return true;
+    });
     startDecoder(frame);
     if (prev == State::Playing)
-        ma_device_start(&d->device);
+        runOnAudio([&] { return ma_device_start(&d->device) == MA_SUCCESS; });
     emit positionChanged(frameToMs(frame), frameToMs(m_totalFrames));
     const int t = trackAtFrame(frame);
     if (t != m_currentTrack) {
