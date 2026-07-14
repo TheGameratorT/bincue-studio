@@ -231,53 +231,65 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
     if (!catalog.isEmpty())
         out << QStringLiteral("CATALOG %1").arg(q(catalog));
 
-    // cdrdao's checkCdTextData() requires each CD-Text pack type to appear
-    // exactly nofTracks+1 times (once per track AND once for the disc); a field
-    // present on only some tracks makes the TOC "not suitable for this drive".
-    // On top of that, once any CD-Text language block exists at all, TITLE and
-    // PERFORMER are mandatory (a count of 0 is itself an error) while the rest
-    // are optional. So: decide whether we're writing CD-Text, and if so always
-    // emit TITLE and PERFORMER on the disc and every track, plus SONGWRITER only
-    // when it's in play, filling every gap below with an empty string.
-    bool anyTrackText = false, anyTrackSongwriter = false;
-    bool anyComposer = false, anyArranger = false, anyMessage = false;
-    for (const TocEntry &e : entries) {
-        anyTrackText |= !e.title.isEmpty() || !e.performer.isEmpty();
-        anyTrackSongwriter |= !e.songwriter.isEmpty();
-        anyComposer |= !e.composer.isEmpty();
-        anyArranger |= !e.arranger.isEmpty();
-        anyMessage |= !e.message.isEmpty();
-    }
-    const bool useSongwriter =
-        !m_params.albumSongwriter.isEmpty() || anyTrackSongwriter;
-    // Composer/arranger/message have no disc-wide field; a track carrying one
-    // still forces the pack type onto every track and the disc (blank-filled)
-    // to satisfy cdrdao's exact nofTracks+1 count.
-    const bool useComposer = anyComposer;
-    const bool useArranger = anyArranger;
-    const bool useMessage = anyMessage;
-    const bool haveCdText = !m_params.albumTitle.isEmpty()
-        || !m_params.albumPerformer.isEmpty() || anyTrackText || useSongwriter
-        || useComposer || useArranger || useMessage;
+    // cdrdao (checkCdTextData, 1.2.x) rejects a TOC whose CD-Text uses a pack
+    // type on only some of {disc + each track}: every field must be non-empty
+    // on the disc AND every track, or be absent entirely. An empty "" reads as
+    // absent, so blank-filling doesn't help — a field is emitted only when it
+    // is complete. TITLE and PERFORMER are mandatory the moment any CD-Text
+    // block exists, so if either is incomplete we drop CD-Text altogether.
+    // (The burn/export flow offers to fill partial fields before we get here,
+    // via cdtextcompletion.h; this stays the safety net that keeps the TOC
+    // valid whatever slips through.)
+    auto ne = [](const QString &s) { return !s.trimmed().isEmpty(); };
+    auto allTracks = [&](auto pred) {
+        for (const TocEntry &e : entries)
+            if (!pred(e))
+                return false;
+        return true;
+    };
+    // Performer and songwriter fall back to the disc value on a track that
+    // lacks its own (a track is by the album artist unless it says otherwise),
+    // so a non-empty disc value alone makes them complete; title, composer,
+    // arranger and message have no such fallback and must be set on every track.
+    const bool titleOk = ne(m_params.albumTitle)
+        && allTracks([&](const TocEntry &e) { return ne(e.title); });
+    const bool performerOk = ne(m_params.albumPerformer);
+    const bool songwriterOk = ne(m_params.albumSongwriter);
+    const bool composerOk = ne(m_params.albumComposer)
+        && allTracks([&](const TocEntry &e) { return ne(e.composer); });
+    const bool arrangerOk = ne(m_params.albumArranger)
+        && allTracks([&](const TocEntry &e) { return ne(e.arranger); });
+    const bool messageOk = ne(m_params.albumMessage)
+        && allTracks([&](const TocEntry &e) { return ne(e.message); });
+
+    // No valid CD-Text at all without both mandatory pack types.
+    const bool haveCdText = titleOk && performerOk;
 
     // Disc-wide CD-Text from the album fields, mirroring the cue's header.
     if (haveCdText) {
         out << QStringLiteral("CD_TEXT {");
         out << QStringLiteral("  LANGUAGE_MAP { 0 : EN }");
         out << QStringLiteral("  LANGUAGE 0 {");
-        out << QStringLiteral("    TITLE %1").arg(q(m_params.albumTitle));
-        out << QStringLiteral("    PERFORMER %1").arg(q(m_params.albumPerformer));
-        if (useSongwriter)
+        out << QStringLiteral("    TITLE %1").arg(q(m_params.albumTitle.trimmed()));
+        out << QStringLiteral("    PERFORMER %1")
+                   .arg(q(m_params.albumPerformer.trimmed()));
+        if (songwriterOk)
             out << QStringLiteral("    SONGWRITER %1")
-                       .arg(q(m_params.albumSongwriter));
-        // No disc-wide composer/arranger/message field, so the disc slot the
-        // count rule demands is filled with an empty string.
-        if (useComposer)
-            out << QStringLiteral("    COMPOSER %1").arg(q(QString()));
-        if (useArranger)
-            out << QStringLiteral("    ARRANGER %1").arg(q(QString()));
-        if (useMessage)
-            out << QStringLiteral("    MESSAGE %1").arg(q(QString()));
+                       .arg(q(m_params.albumSongwriter.trimmed()));
+        if (composerOk)
+            out << QStringLiteral("    COMPOSER %1")
+                       .arg(q(m_params.albumComposer.trimmed()));
+        if (arrangerOk)
+            out << QStringLiteral("    ARRANGER %1")
+                       .arg(q(m_params.albumArranger.trimmed()));
+        if (messageOk)
+            out << QStringLiteral("    MESSAGE %1")
+                       .arg(q(m_params.albumMessage.trimmed()));
+        // DISC_ID is disc-only (no per-track counterpart), so it needs no
+        // all-or-nothing handling — emit it whenever it's set.
+        if (ne(m_params.albumDiscId))
+            out << QStringLiteral("    DISC_ID %1")
+                       .arg(q(m_params.albumDiscId.trimmed()));
         out << QStringLiteral("  }");
         out << QStringLiteral("}");
     }
@@ -311,29 +323,28 @@ QString ExportWorker::buildToc(const QList<TocEntry> &entries, qint64 totalFrame
         if (!e.isrc.isEmpty())
             out << QStringLiteral("ISRC %1").arg(q(e.isrc));
 
-        // The same field set must appear on every track. Performer and
-        // songwriter fall back to the album value (a track is by the album
-        // artist unless it says otherwise); a missing title falls back to an
-        // empty string rather than the album title, which isn't a track name.
+        // The same complete field set appears on every track. Performer and
+        // songwriter fall back to the disc value when the track lacks its own;
+        // the others are only ever written when every track already has one, so
+        // no fallback is needed.
         if (haveCdText) {
             out << QStringLiteral("CD_TEXT {");
             out << QStringLiteral("  LANGUAGE 0 {");
-            out << QStringLiteral("    TITLE %1").arg(q(e.title));
+            out << QStringLiteral("    TITLE %1").arg(q(e.title.trimmed()));
             out << QStringLiteral("    PERFORMER %1")
-                       .arg(q(e.performer.isEmpty() ? m_params.albumPerformer
-                                                    : e.performer));
-            if (useSongwriter)
+                       .arg(q(ne(e.performer) ? e.performer.trimmed()
+                                              : m_params.albumPerformer.trimmed()));
+            if (songwriterOk)
                 out << QStringLiteral("    SONGWRITER %1")
-                           .arg(q(e.songwriter.isEmpty() ? m_params.albumSongwriter
-                                                         : e.songwriter));
-            // These have no album fallback; a track that lacks one gets an
-            // empty string, keeping every track's pack set identical.
-            if (useComposer)
-                out << QStringLiteral("    COMPOSER %1").arg(q(e.composer));
-            if (useArranger)
-                out << QStringLiteral("    ARRANGER %1").arg(q(e.arranger));
-            if (useMessage)
-                out << QStringLiteral("    MESSAGE %1").arg(q(e.message));
+                           .arg(q(ne(e.songwriter)
+                                      ? e.songwriter.trimmed()
+                                      : m_params.albumSongwriter.trimmed()));
+            if (composerOk)
+                out << QStringLiteral("    COMPOSER %1").arg(q(e.composer.trimmed()));
+            if (arrangerOk)
+                out << QStringLiteral("    ARRANGER %1").arg(q(e.arranger.trimmed()));
+            if (messageOk)
+                out << QStringLiteral("    MESSAGE %1").arg(q(e.message.trimmed()));
             out << QStringLiteral("  }");
             out << QStringLiteral("}");
         }

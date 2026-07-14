@@ -44,10 +44,13 @@
 
 #include "burndialog.h"
 #include "burnjob.h"
+#include "cdtextcompletion.h"
 #include "exportworker.h"
 #include "playbackengine.h"
 #include "programaudio.h"
 #include "tagreader.h"
+#include "cdtextfields.h"
+#include "discdetailsdialog.h"
 #include "trackdetailsdialog.h"
 
 #include <hostkit/HostSession.h>
@@ -438,11 +441,44 @@ void MainWindow::buildUi()
     connect(fillBtn, &QPushButton::clicked, this,
             &MainWindow::fillDiscInfoFromTrack);
 
-    leftForm->addRow(tr("Title:"), m_albumTitleEdit);
-    leftForm->addRow(tr("Performer:"), m_albumPerformerEdit);
-    leftForm->addRow(tr("Songwriter:"), m_albumSongwriterEdit);
+    // Door to the disc-wide CD-Text fields kept off the panel (composer,
+    // arranger, message, disc id) — the disc counterpart of the track
+    // "Details…" button.
+    m_discDetailsBtn = new QPushButton(tr("Disc Details…"));
+    m_discDetailsBtn->setToolTip(
+        tr("Edit the disc-wide composer, arranger, message and disc id."));
+    connect(m_discDetailsBtn, &QPushButton::clicked, this,
+            &MainWindow::openDiscDetails);
+
+    // Error badges for the two fields cdrdao makes mandatory once any CD-Text
+    // exists. A flat red button that explains itself when pressed; hidden until
+    // updateCdTextWarnings() decides the field is a problem. Each rides in an
+    // HBox to the right of its edit, like the pregap warning.
+    auto makeErrBadge = [this](QToolButton *&btn, QLineEdit *edit) -> QLayout * {
+        btn = new QToolButton;
+        btn->setText(QStringLiteral("⚠"));
+        btn->setAutoRaise(true);
+        btn->setStyleSheet(
+            QStringLiteral("color: #d13438; font-weight: bold;"));
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->hide();
+        connect(btn, &QToolButton::clicked, this,
+                &MainWindow::showCdTextWarning);
+        auto *rowLayout = new QHBoxLayout;
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->addWidget(edit, 1);
+        rowLayout->addWidget(btn);
+        return rowLayout;
+    };
+
+    leftForm->addRow(tr("Title:"), makeErrBadge(m_titleErrBtn, m_albumTitleEdit));
+    leftForm->addRow(tr("Performer:"),
+                     makeErrBadge(m_performerErrBtn, m_albumPerformerEdit));
+    leftForm->addRow(tr("Songwriter:"),
+                     makeErrBadge(m_songwriterErrBtn, m_albumSongwriterEdit));
     leftForm->addRow(tr("Genre:"), m_albumGenreEdit);
     leftForm->addRow(QString(), fillBtn);
+    leftForm->addRow(QString(), m_discDetailsBtn);
 
     rightForm->addRow(tr("Year:"), m_albumYearEdit);
     rightForm->addRow(tr("Catalog (UPC):"), m_albumCatalogEdit);
@@ -474,6 +510,13 @@ void MainWindow::buildUi()
          {m_albumTitleEdit, m_albumPerformerEdit, m_albumSongwriterEdit,
           m_albumGenreEdit, m_albumYearEdit, m_albumCatalogEdit})
         connect(edit, &QLineEdit::textEdited, this, &MainWindow::markDirty);
+    // The mandatory-field badges depend on the disc CD-Text fields (title,
+    // performer, songwriter) as much as on the tracks, so refresh them whenever
+    // one changes.
+    for (QLineEdit *edit :
+         {m_albumTitleEdit, m_albumPerformerEdit, m_albumSongwriterEdit})
+        connect(edit, &QLineEdit::textChanged, this,
+                &MainWindow::updateCdTextWarnings);
     connect(m_discSizeCombo, &QComboBox::activated, this,
             &MainWindow::markDirty);
     connect(m_pregapSpin, &QDoubleSpinBox::valueChanged, this,
@@ -668,6 +711,9 @@ void MainWindow::buildUi()
     connect(burnBtn, &QPushButton::clicked, m_burnAct, &QAction::trigger);
     bottomRow->addWidget(burnBtn);
     root->addLayout(bottomRow);
+
+    // Reflect the (empty) initial disc state on the details button and badges.
+    updateCdTextWarnings();
 }
 
 // -- Window title / dirty state ----------------------------------------------
@@ -767,6 +813,8 @@ void MainWindow::onItemChanged(QTableWidgetItem *item)
         return;
     }
     markDirty();
+    // Editing a track title/performer can flip whether CD-Text exists.
+    updateCdTextWarnings();
 }
 
 void MainWindow::refreshTable()
@@ -879,6 +927,9 @@ void MainWindow::refreshTable()
     m_table->blockSignals(false);
     updatePlayButtons();
     updateCapacity();
+    // Track CD-Text may have changed, so a disc Title/Performer that was
+    // optional could now be mandatory (or vice versa).
+    updateCdTextWarnings();
 }
 
 // Point each row's play button at the right glyph: a pause icon on the track
@@ -986,6 +1037,80 @@ void MainWindow::openTrackDetails(int row)
     markDirty();
     // The row's own cells don't change, but the button's badge might, so redraw.
     refreshTable();
+}
+
+void MainWindow::openDiscDetails()
+{
+    DiscDetailsDialog dialog(gatherMetadataParams(), this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    m_albumComposer = dialog.composer();
+    m_albumArranger = dialog.arranger();
+    m_albumMessage = dialog.message();
+    m_albumDiscId = dialog.discId();
+    markDirty();
+    // A disc pack type may have appeared or gone — refresh the button badge and
+    // every warning.
+    updateCdTextWarnings();
+}
+
+ExportWorker::Params MainWindow::gatherMetadataParams() const
+{
+    ExportWorker::Params p;
+    p.tracks = m_tracks;
+    p.albumTitle = m_albumTitleEdit->text();
+    p.albumPerformer = m_albumPerformerEdit->text();
+    p.albumSongwriter = m_albumSongwriterEdit->text();
+    p.albumComposer = m_albumComposer;
+    p.albumArranger = m_albumArranger;
+    p.albumMessage = m_albumMessage;
+    p.albumDiscId = m_albumDiscId;
+    p.albumGenre = m_albumGenreEdit->text();
+    p.albumYear = m_albumYearEdit->text();
+    p.albumCatalog = m_albumCatalogEdit->text();
+    return p;
+}
+
+void MainWindow::updateCdTextWarnings()
+{
+    if (!m_titleErrBtn)
+        return;  // called before buildUi finished
+
+    const ExportWorker::Params p = gatherMetadataParams();
+    auto attn = [&p](cdtext::Pack pack) {
+        return cdtext::needsAttention(p, cdtext::field(pack));
+    };
+
+    // Each panel field flags exactly when the completion prompt would list it.
+    m_titleErrBtn->setVisible(attn(cdtext::Pack::Title));
+    m_performerErrBtn->setVisible(attn(cdtext::Pack::Performer));
+    m_songwriterErrBtn->setVisible(attn(cdtext::Pack::Songwriter));
+
+    // The disc-details fields have no panel row, so roll their warnings up onto
+    // the button: ⚠ if any is partial, else • if any merely carries a value.
+    const bool discAttn = attn(cdtext::Pack::Composer)
+        || attn(cdtext::Pack::Arranger) || attn(cdtext::Pack::Message);
+    const bool has = DiscDetailsDialog::hasDetails(
+        m_albumComposer, m_albumArranger, m_albumMessage, m_albumDiscId);
+    QString label = tr("Disc Details…");
+    if (discAttn)
+        label += QStringLiteral("  ⚠");
+    else if (has)
+        label += QStringLiteral("  •");
+    m_discDetailsBtn->setText(label);
+    m_discDetailsBtn->setStyleSheet(
+        discAttn ? QStringLiteral("color: #d13438;") : QString());
+}
+
+void MainWindow::showCdTextWarning()
+{
+    QMessageBox::warning(
+        this, tr("CD-Text field incomplete"),
+        tr("This disc has CD-Text, so cdrdao needs this field on the whole "
+           "disc and every track (or nowhere at all) — otherwise the CD-Text "
+           "can't be written.\n\nFill it in here (and on any track that lacks "
+           "it). You'll also be prompted to complete it when you burn or "
+           "export."));
 }
 
 void MainWindow::reimportTrack(int row)
@@ -1199,6 +1324,10 @@ QJsonObject MainWindow::gatherProjectJson() const
     o[QStringLiteral("album_title")] = m_albumTitleEdit->text();
     o[QStringLiteral("album_performer")] = m_albumPerformerEdit->text();
     o[QStringLiteral("album_songwriter")] = m_albumSongwriterEdit->text();
+    o[QStringLiteral("album_composer")] = m_albumComposer;
+    o[QStringLiteral("album_arranger")] = m_albumArranger;
+    o[QStringLiteral("album_message")] = m_albumMessage;
+    o[QStringLiteral("album_disc_id")] = m_albumDiscId;
     o[QStringLiteral("album_genre")] = m_albumGenreEdit->text();
     o[QStringLiteral("album_year")] = m_albumYearEdit->text();
     o[QStringLiteral("album_catalog")] = m_albumCatalogEdit->text();
@@ -1219,6 +1348,10 @@ void MainWindow::newProject()
     m_albumTitleEdit->clear();
     m_albumPerformerEdit->clear();
     m_albumSongwriterEdit->clear();
+    m_albumComposer.clear();
+    m_albumArranger.clear();
+    m_albumMessage.clear();
+    m_albumDiscId.clear();
     m_albumGenreEdit->clear();
     m_albumYearEdit->clear();
     m_albumCatalogEdit->clear();
@@ -1319,6 +1452,10 @@ void MainWindow::openProject(QString path)
         data.value(QStringLiteral("album_performer")).toString());
     m_albumSongwriterEdit->setText(
         data.value(QStringLiteral("album_songwriter")).toString());
+    m_albumComposer = data.value(QStringLiteral("album_composer")).toString();
+    m_albumArranger = data.value(QStringLiteral("album_arranger")).toString();
+    m_albumMessage = data.value(QStringLiteral("album_message")).toString();
+    m_albumDiscId = data.value(QStringLiteral("album_disc_id")).toString();
     m_albumGenreEdit->setText(
         data.value(QStringLiteral("album_genre")).toString());
     m_albumYearEdit->setText(
@@ -1514,6 +1651,13 @@ void MainWindow::exportProject()
     if (m_worker)
         return;  // an export is already running
 
+    // Settle the CD-Text first — the moment the user asks to export — so a
+    // blocking "disc info incomplete" warning or the track-fill prompt comes up
+    // before the folder picker, not after. Cancelling here abandons the export.
+    ExportWorker::Params params = gatherMetadataParams();
+    if (!ensureCdTextComplete(params, this))
+        return;
+
     const QString outDir = QFileDialog::getExistingDirectory(
         this, tr("Choose output folder"));
     if (outDir.isEmpty())
@@ -1526,14 +1670,6 @@ void MainWindow::exportProject()
     if (baseName.isEmpty())
         baseName = QStringLiteral("album");
 
-    ExportWorker::Params params;
-    params.tracks = m_tracks;
-    params.albumTitle = m_albumTitleEdit->text();
-    params.albumPerformer = m_albumPerformerEdit->text();
-    params.albumSongwriter = m_albumSongwriterEdit->text();
-    params.albumGenre = m_albumGenreEdit->text();
-    params.albumYear = m_albumYearEdit->text();
-    params.albumCatalog = m_albumCatalogEdit->text();
     params.outDir = outDir;
     params.baseName = baseName;
     params.pregapSeconds = m_pregapSpin->value();
@@ -1589,6 +1725,13 @@ void MainWindow::burnProject()
         return;
     }
 
+    // Settle the CD-Text first — the moment the user asks to burn — so a
+    // blocking "disc info incomplete" warning or the track-fill prompt comes up
+    // before the burn-setup dialog, not after. Cancelling abandons the burn.
+    ExportWorker::Params params = gatherMetadataParams();
+    if (!ensureCdTextComplete(params, this))
+        return;
+
     BurnSetupDialog setup(this);
     if (setup.exec() != QDialog::Accepted)
         return;
@@ -1623,14 +1766,6 @@ void MainWindow::burnProject()
     if (confirm.clickedButton() != goBtn)
         return;
 
-    ExportWorker::Params params;
-    params.tracks = m_tracks;
-    params.albumTitle = m_albumTitleEdit->text();
-    params.albumPerformer = m_albumPerformerEdit->text();
-    params.albumSongwriter = m_albumSongwriterEdit->text();
-    params.albumGenre = m_albumGenreEdit->text();
-    params.albumYear = m_albumYearEdit->text();
-    params.albumCatalog = m_albumCatalogEdit->text();
     params.pregapSeconds = m_pregapSpin->value();
     params.gapSeconds = m_gapSpin->value();
     // outDir, baseName and writeToc are set by BurnJob.

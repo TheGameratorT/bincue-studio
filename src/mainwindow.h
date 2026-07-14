@@ -5,9 +5,9 @@
 #include <QMainWindow>
 #include <QSettings>
 
+#include "exportworker.h"
 #include "track.h"
 
-class ExportWorker;
 class PlaybackEngine;
 class QAction;
 class QCloseEvent;
@@ -68,8 +68,18 @@ private:
     void removeSelected();
     void moveSelected(int direction);
     void openTrackDetails(int row);
+    void openDiscDetails();
     void reimportTrack(int row);
     void fillDiscInfoFromTrack();
+    // A Params snapshot of the current disc + track metadata (no output paths),
+    // used both to gather for a burn/export and to feed the shared cdtext model
+    // that drives the warning badges.
+    ExportWorker::Params gatherMetadataParams() const;
+    // Refresh every CD-Text ⚠ badge (the Title/Performer/Songwriter panel ones
+    // and the Disc Details button) from the shared cdtext model, so they all
+    // flag a partial pack the same way the completion prompt would.
+    void updateCdTextWarnings();
+    void showCdTextWarning();
     void createLabel();
     void showAbout();
     void onItemChanged(QTableWidgetItem *item);
@@ -106,6 +116,19 @@ private:
     QLineEdit *m_albumGenreEdit = nullptr;
     QLineEdit *m_albumYearEdit = nullptr;
     QLineEdit *m_albumCatalogEdit = nullptr;
+    // Less-common disc CD-Text pack types, edited in the Disc details dialog
+    // instead of on the panel (see DiscDetailsDialog).
+    QString m_albumComposer;
+    QString m_albumArranger;
+    QString m_albumMessage;
+    QString m_albumDiscId;
+    QPushButton *m_discDetailsBtn = nullptr;
+    // Error badges next to the disc CD-Text panel fields, shown when the pack is
+    // partially used (see cdtext::needsAttention). The disc-details fields
+    // (composer/arranger/message) roll their badges up into m_discDetailsBtn.
+    QToolButton *m_titleErrBtn = nullptr;
+    QToolButton *m_performerErrBtn = nullptr;
+    QToolButton *m_songwriterErrBtn = nullptr;
     QComboBox *m_discSizeCombo = nullptr;
     QDoubleSpinBox *m_pregapSpin = nullptr;
     QDoubleSpinBox *m_gapSpin = nullptr;

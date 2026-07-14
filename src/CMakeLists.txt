@@ -26,7 +26,10 @@ add_executable(bincue-studio
     burncontroller.cpp
     burnjob.cpp
     burndialog.cpp
+    cdtextfields.cpp
+    cdtextcompletion.cpp
     trackdetailsdialog.cpp
+    discdetailsdialog.cpp
     mainwindow.cpp
 )
 

@@ -17,6 +17,14 @@ public:
         QString albumTitle;
         QString albumPerformer;
         QString albumSongwriter;
+        // Extra disc-level CD-Text pack types, edited in the Disc details dialog
+        // (composer/arranger/message have no main-table field but cdrdao needs
+        // them disc-wide too when used on any track — see cdtextcompletion.h).
+        // albumDiscId is the disc-only DISC_ID pack, which has no per-track slot.
+        QString albumComposer;
+        QString albumArranger;
+        QString albumMessage;
+        QString albumDiscId;
         QString albumGenre;
         QString albumYear;
         QString albumCatalog;
