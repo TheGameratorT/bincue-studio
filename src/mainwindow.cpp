@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QEvent>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -25,6 +26,9 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPalette>
+#include <QPixmap>
 #include <QProcess>
 #include <QProgressBar>
 #include <QProxyStyle>
@@ -96,6 +100,38 @@ QIcon themedIcon(const char *name, QStyle::StandardPixmap fallback)
 {
     const QIcon icon = QIcon::fromTheme(QLatin1String(name));
     return icon.isNull() ? qApp->style()->standardIcon(fallback) : icon;
+}
+
+// Transport-button icon that stays legible in both light and dark themes.
+//
+// On Linux the desktop's icon theme (Breeze etc.) provides monochrome
+// "symbolic" media icons that already recolour to the palette, so we take the
+// fromTheme() icon untouched — same path as themedIcon(), no behaviour change.
+//
+// On Windows there is no icon theme: fromTheme() is null and the style falls
+// back to QCommonStyle's fixed near-black media PNGs, which ignore the palette
+// and so vanish on a dark background. There we re-tint the glyph's silhouette to
+// the current button-text colour. (Regenerated on a live theme switch too — see
+// MainWindow::refreshMediaIcons.)
+QIcon mediaIcon(const char *themeName, QStyle::StandardPixmap fallback)
+{
+    const QIcon themed = QIcon::fromTheme(QLatin1String(themeName));
+    if (!themed.isNull())
+        return themed;
+
+    QStyle *style = qApp->style();
+    const int extent = style->pixelMetric(QStyle::PM_ButtonIconSize);
+    const qreal dpr = qApp->devicePixelRatio();
+    QPixmap pm = style->standardIcon(fallback).pixmap(QSize(extent, extent), dpr);
+    if (pm.isNull())
+        return style->standardIcon(fallback);
+    // The PNGs are anti-aliased black shapes on transparent alpha, so SourceIn
+    // keeps their shape and just swaps the colour.
+    QPainter p(&pm);
+    p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    p.fillRect(pm.rect(), qApp->palette().color(QPalette::ButtonText));
+    p.end();
+    return QIcon(pm);
 }
 
 // mm:ss for the player's position/total time labels.
@@ -553,25 +589,20 @@ void MainWindow::buildUi()
     playerRow->setContentsMargins(8, 4, 8, 4);
     playerRow->setSpacing(6);
 
-    auto *style = qApp->style();
     m_prevBtn = new QToolButton;
     m_prevBtn->setAutoRaise(true);
-    m_prevBtn->setIcon(themedIcon("media-skip-backward",
-                                  QStyle::SP_MediaSkipBackward));
     m_prevBtn->setToolTip(tr("Previous track"));
     m_playPauseBtn = new QToolButton;
     m_playPauseBtn->setAutoRaise(true);
-    m_playPauseBtn->setIcon(style->standardIcon(QStyle::SP_MediaPlay));
     m_playPauseBtn->setToolTip(tr("Play / Pause"));
     m_stopBtn = new QToolButton;
     m_stopBtn->setAutoRaise(true);
-    m_stopBtn->setIcon(style->standardIcon(QStyle::SP_MediaStop));
     m_stopBtn->setToolTip(tr("Stop"));
     m_nextBtn = new QToolButton;
     m_nextBtn->setAutoRaise(true);
-    m_nextBtn->setIcon(themedIcon("media-skip-forward",
-                                  QStyle::SP_MediaSkipForward));
     m_nextBtn->setToolTip(tr("Next track"));
+    // Glyphs (theme-aware) are assigned here and re-tinted on a theme switch.
+    refreshMediaIcons();
 
     m_posLabel = new QLabel(formatClock(0));
     m_posLabel->setToolTip(tr("Elapsed"));
@@ -648,8 +679,9 @@ void MainWindow::buildUi()
     connect(m_player, &PlaybackEngine::stateChanged, this,
             [this](PlaybackEngine::State state) {
                 const bool playing = state == PlaybackEngine::State::Playing;
-                m_playPauseBtn->setIcon(qApp->style()->standardIcon(
-                    playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+                m_playPauseBtn->setIcon(
+                    playing ? mediaIcon("media-playback-pause", QStyle::SP_MediaPause)
+                            : mediaIcon("media-playback-start", QStyle::SP_MediaPlay));
                 m_stopBtn->setEnabled(state != PlaybackEngine::State::Stopped);
                 updatePlayButtons();
             });
@@ -934,15 +966,15 @@ void MainWindow::refreshTable()
 // that's currently playing, a play icon everywhere else.
 void MainWindow::updatePlayButtons()
 {
-    auto *style = qApp->style();
     const int current = m_player->currentTrack();
     const bool playing = m_player->state() == PlaybackEngine::State::Playing;
+    // Build the two glyphs once rather than per row.
+    const QIcon playGlyph = mediaIcon("media-playback-start", QStyle::SP_MediaPlay);
+    const QIcon pauseGlyph = mediaIcon("media-playback-pause", QStyle::SP_MediaPause);
     for (int row = 0; row < m_playButtons.size(); ++row) {
         const bool active = row == current
             && m_player->state() != PlaybackEngine::State::Stopped;
-        m_playButtons[row]->setIcon(style->standardIcon(
-            (active && playing) ? QStyle::SP_MediaPause
-                                : QStyle::SP_MediaPlay));
+        m_playButtons[row]->setIcon((active && playing) ? pauseGlyph : playGlyph);
     }
 }
 
@@ -1653,6 +1685,81 @@ void MainWindow::closeEvent(QCloseEvent *event)
     } else {
         event->ignore();
     }
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    // ApplicationPaletteChange fires when the OS/desktop toggles light<->dark
+    // while we're running; ThemeChange covers the same on some platforms.
+    if ((event->type() == QEvent::ApplicationPaletteChange
+         || event->type() == QEvent::ThemeChange)
+        && !m_themeRefreshPending) {
+        m_themeRefreshPending = true;
+        // Defer to the next event-loop pass. Handling it inline re-polishes the
+        // menu bar and tool bar before Qt has finished propagating the new
+        // palette to them, which leaves the top of the window one theme-switch
+        // behind (old foreground on the new background). Once the loop unwinds the
+        // palette has fully settled everywhere.
+        QMetaObject::invokeMethod(
+            this,
+            [this] {
+                m_themeRefreshPending = false;
+                refreshThemedStyles();
+                refreshMediaIcons();
+            },
+            Qt::QueuedConnection);
+    }
+}
+
+// Re-assign the transport (and per-row) media glyphs. On Linux the theme icons
+// follow the palette on their own so this just re-sets the same icon; on Windows
+// it re-tints the baked-in PNGs for the now-current theme. Guarded so it's safe
+// if a change event arrives before the player row is built.
+void MainWindow::refreshMediaIcons()
+{
+    if (!m_playPauseBtn)
+        return;
+    m_prevBtn->setIcon(mediaIcon("media-skip-backward",
+                                 QStyle::SP_MediaSkipBackward));
+    m_nextBtn->setIcon(mediaIcon("media-skip-forward",
+                                 QStyle::SP_MediaSkipForward));
+    m_stopBtn->setIcon(mediaIcon("media-playback-stop", QStyle::SP_MediaStop));
+    const bool playing = m_player->state() == PlaybackEngine::State::Playing;
+    m_playPauseBtn->setIcon(
+        playing ? mediaIcon("media-playback-pause", QStyle::SP_MediaPause)
+                : mediaIcon("media-playback-start", QStyle::SP_MediaPlay));
+    updatePlayButtons();
+}
+
+void MainWindow::refreshThemedStyles()
+{
+    // Only stylesheet-styled widgets go stale (standard widgets follow the
+    // palette on their own). Clearing then re-setting the exact same sheet forces
+    // the stylesheet style to unpolish/polish and re-resolve palette() and
+    // inherited text colours against the current theme.
+    const auto widgets = findChildren<QWidget *>();
+    for (QWidget *w : widgets) {
+        const QString sheet = w->styleSheet();
+        if (sheet.isEmpty())
+            continue;
+        w->setStyleSheet(QString());
+        w->setStyleSheet(sheet);
+    }
+    // The menu bar and tool bars carry no stylesheet but can still render one
+    // switch behind under some styles (their text/icons keep the previous theme's
+    // colour). Re-polish them explicitly against the now-current palette.
+    const auto repolish = [](QWidget *w) {
+        if (!w)
+            return;
+        w->style()->unpolish(w);
+        w->style()->polish(w);
+        w->update();
+    };
+    repolish(menuBar());
+    const auto bars = findChildren<QToolBar *>();
+    for (QToolBar *bar : bars)
+        repolish(bar);
 }
 
 // -- Export ----------------------------------------------------------------------------------

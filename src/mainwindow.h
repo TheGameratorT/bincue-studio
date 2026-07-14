@@ -13,6 +13,7 @@ class QAction;
 class QCloseEvent;
 class QComboBox;
 class QDoubleSpinBox;
+class QEvent;
 class QLabel;
 class QLineEdit;
 class QMenu;
@@ -31,8 +32,21 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    // Catches the OS switching light<->dark at runtime: widgets we've given an
+    // explicit stylesheet are painted by Qt's stylesheet style, which caches the
+    // palette it resolved at polish time and won't pick up the new theme's
+    // colours on its own. See refreshThemedStyles.
+    void changeEvent(QEvent *event) override;
 
 private:
+    // Re-apply every child widget's stylesheet so the stylesheet style re-polishes
+    // against the now-current palette. Without this a dark->light (or light->dark)
+    // switch leaves those widgets' text/base colours frozen on the old theme.
+    void refreshThemedStyles();
+    // (Re)assign the transport/per-row media glyphs so they stay legible in the
+    // current theme; also used once at build time.
+    void refreshMediaIcons();
+
     // construction
     void buildActions();
     void buildMenus();
@@ -159,4 +173,7 @@ private:
     QLabel *m_nowPlayingLabel = nullptr;
     QList<QToolButton *> m_playButtons; // one per row, in ColPlay
     bool m_sliderHeld = false;
+    // Guards against scheduling more than one deferred theme refresh per switch
+    // (both ApplicationPaletteChange and ThemeChange can fire for one change).
+    bool m_themeRefreshPending = false;
 };
