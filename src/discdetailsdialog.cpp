@@ -57,21 +57,42 @@ DiscDetailsDialog::DiscDetailsDialog(const ExportWorker::Params &metadata,
 
     auto *root = new QVBoxLayout(this);
 
-    // CD-Text: the disc-wide pack types most players either don't show or only
-    // surface in a details view, so they live here instead of the main panel.
+    // CD-Text: the disc-wide pack types the main panel keeps off itself. The
+    // songwriter is mandatory-when-present like title/performer, so it leads and
+    // carries a badge; the rest most players either don't show or only surface
+    // in a details view.
     auto *textBox = new QGroupBox(tr("CD-Text"));
     auto *textForm = new QFormLayout(textBox);
+    m_songwriter = new QLineEdit(metadata.albumSongwriter);
     m_composer = new QLineEdit(metadata.albumComposer);
     m_arranger = new QLineEdit(metadata.albumArranger);
     m_message = new QLineEdit(metadata.albumMessage);
     m_message->setPlaceholderText(tr("Short note shown by some players"));
+    m_songwriterErr = makeBadge(this);
     m_composerErr = makeBadge(this);
     m_arrangerErr = makeBadge(this);
     m_messageErr = makeBadge(this);
+    textForm->addRow(tr("Songwriter:"), badgedRow(m_songwriter, m_songwriterErr));
     textForm->addRow(tr("Composer:"), badgedRow(m_composer, m_composerErr));
     textForm->addRow(tr("Arranger:"), badgedRow(m_arranger, m_arrangerErr));
     textForm->addRow(tr("Message:"), badgedRow(m_message, m_messageErr));
     root->addWidget(textBox);
+
+    // Album info: the descriptive disc fields that aren't governed by cdrdao's
+    // all-or-nothing CD-Text rule, so they carry no badge.
+    auto *albumBox = new QGroupBox(tr("Album"));
+    auto *albumForm = new QFormLayout(albumBox);
+    m_genre = new QLineEdit(metadata.albumGenre);
+    m_year = new QLineEdit(metadata.albumYear);
+    m_catalog = new QLineEdit(metadata.albumCatalog);
+    m_catalog->setPlaceholderText(tr("13-digit UPC/EAN barcode (optional)"));
+    m_catalog->setToolTip(
+        tr("Media Catalog Number — the disc's 13-digit UPC/EAN barcode. "
+           "Written as CATALOG in the cue; ignored unless exactly 13 digits."));
+    albumForm->addRow(tr("Genre:"), m_genre);
+    albumForm->addRow(tr("Year:"), m_year);
+    albumForm->addRow(tr("Catalog (UPC):"), m_catalog);
+    root->addWidget(albumBox);
 
     // Identifier. DISC_ID is disc-only and rarely populated, hence its home
     // here rather than on the panel. It can't be "partial", so it has no badge.
@@ -91,7 +112,7 @@ DiscDetailsDialog::DiscDetailsDialog(const ExportWorker::Params &metadata,
     root->addWidget(buttons);
 
     // Refresh the badges live as the disc values change, exactly like the panel.
-    for (QLineEdit *e : {m_composer, m_arranger, m_message})
+    for (QLineEdit *e : {m_songwriter, m_composer, m_arranger, m_message})
         connect(e, &QLineEdit::textChanged, this,
                 &DiscDetailsDialog::updateBadges);
     updateBadges();
@@ -99,16 +120,39 @@ DiscDetailsDialog::DiscDetailsDialog(const ExportWorker::Params &metadata,
 
 void DiscDetailsDialog::updateBadges()
 {
+    m_metadata.albumSongwriter = m_songwriter->text();
     m_metadata.albumComposer = m_composer->text();
     m_metadata.albumArranger = m_arranger->text();
     m_metadata.albumMessage = m_message->text();
     using cdtext::Pack;
+    m_songwriterErr->setVisible(
+        cdtext::needsAttention(m_metadata, cdtext::field(Pack::Songwriter)));
     m_composerErr->setVisible(
         cdtext::needsAttention(m_metadata, cdtext::field(Pack::Composer)));
     m_arrangerErr->setVisible(
         cdtext::needsAttention(m_metadata, cdtext::field(Pack::Arranger)));
     m_messageErr->setVisible(
         cdtext::needsAttention(m_metadata, cdtext::field(Pack::Message)));
+}
+
+QString DiscDetailsDialog::songwriter() const
+{
+    return m_songwriter->text().trimmed();
+}
+
+QString DiscDetailsDialog::genre() const
+{
+    return m_genre->text().trimmed();
+}
+
+QString DiscDetailsDialog::year() const
+{
+    return m_year->text().trimmed();
+}
+
+QString DiscDetailsDialog::catalog() const
+{
+    return m_catalog->text().trimmed();
 }
 
 QString DiscDetailsDialog::composer() const
@@ -131,10 +175,12 @@ QString DiscDetailsDialog::discId() const
     return m_discId->text().trimmed();
 }
 
-bool DiscDetailsDialog::hasDetails(const QString &composer,
-                                   const QString &arranger,
-                                   const QString &message, const QString &discId)
+bool DiscDetailsDialog::hasDetails(const ExportWorker::Params &m)
 {
-    return !composer.trimmed().isEmpty() || !arranger.trimmed().isEmpty()
-        || !message.trimmed().isEmpty() || !discId.trimmed().isEmpty();
+    for (const QString &v :
+         {m.albumSongwriter, m.albumGenre, m.albumYear, m.albumCatalog,
+          m.albumComposer, m.albumArranger, m.albumMessage, m.albumDiscId})
+        if (!v.trimmed().isEmpty())
+            return true;
+    return false;
 }

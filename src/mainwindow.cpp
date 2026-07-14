@@ -337,36 +337,23 @@ void MainWindow::buildUi()
 
     auto *discBody = new QWidget;
     discOuter->addWidget(discBody);
-    auto *discGrid = new QGridLayout(discBody);
-    auto *leftForm = new QFormLayout;
-    auto *rightForm = new QFormLayout;
-    leftForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    rightForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    // Keep a clear gutter between the "Title:"/"Performer:"/… labels and their
-    // input fields; several styles default this to 0, gluing them together.
-    leftForm->setHorizontalSpacing(10);
-    rightForm->setHorizontalSpacing(10);
-    // Give the rows some breathing room so the fields aren't stacked flush.
-    leftForm->setVerticalSpacing(10);
-    rightForm->setVerticalSpacing(10);
-    discGrid->addLayout(leftForm, 0, 0);
-    discGrid->addLayout(rightForm, 0, 1);
-    discGrid->setColumnStretch(0, 3);
-    discGrid->setColumnStretch(1, 2);
-    discGrid->setHorizontalSpacing(24);
+    // A single narrow column: the two mandatory CD-Text fields, a compact row of
+    // burn settings, then the action buttons. Everything else lives behind the
+    // Disc details button, so the whole panel is only a handful of rows tall.
+    auto *discCol = new QVBoxLayout(discBody);
+    discCol->setContentsMargins(4, 4, 4, 8);
+    discCol->setSpacing(8);
+
+    auto *metaForm = new QFormLayout;
+    metaForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    // Keep a clear gutter between the labels and their input fields; several
+    // styles default this to 0, gluing them together.
+    metaForm->setHorizontalSpacing(10);
+    metaForm->setVerticalSpacing(8);
+    discCol->addLayout(metaForm);
 
     m_albumTitleEdit = new QLineEdit;
     m_albumPerformerEdit = new QLineEdit;
-    m_albumSongwriterEdit = new QLineEdit;
-    m_albumGenreEdit = new QLineEdit;
-    m_albumYearEdit = new QLineEdit;
-    m_albumCatalogEdit = new QLineEdit;
-    m_albumCatalogEdit->setPlaceholderText(
-        tr("13-digit UPC/EAN barcode (optional)"));
-    m_albumCatalogEdit->setToolTip(
-        tr("Media Catalog Number — the disc's 13-digit UPC/EAN barcode. "
-           "Written as CATALOG in the cue; ignored unless exactly 13 "
-           "digits."));
 
     m_discSizeCombo = new QComboBox;
     for (const DiscSize &size : DISC_SIZES)
@@ -441,12 +428,13 @@ void MainWindow::buildUi()
     connect(fillBtn, &QPushButton::clicked, this,
             &MainWindow::fillDiscInfoFromTrack);
 
-    // Door to the disc-wide CD-Text fields kept off the panel (composer,
-    // arranger, message, disc id) — the disc counterpart of the track
-    // "Details…" button.
+    // Door to the disc-wide fields kept off the panel (songwriter, genre, year,
+    // catalog, composer, arranger, message, disc id) — the disc counterpart of
+    // the track "Details…" button.
     m_discDetailsBtn = new QPushButton(tr("Disc Details…"));
     m_discDetailsBtn->setToolTip(
-        tr("Edit the disc-wide composer, arranger, message and disc id."));
+        tr("Edit the disc-wide songwriter, genre, year, catalog, composer, "
+           "arranger, message and disc id."));
     connect(m_discDetailsBtn, &QPushButton::clicked, this,
             &MainWindow::openDiscDetails);
 
@@ -471,20 +459,33 @@ void MainWindow::buildUi()
         return rowLayout;
     };
 
-    leftForm->addRow(tr("Title:"), makeErrBadge(m_titleErrBtn, m_albumTitleEdit));
-    leftForm->addRow(tr("Performer:"),
+    metaForm->addRow(tr("Title:"),
+                     makeErrBadge(m_titleErrBtn, m_albumTitleEdit));
+    metaForm->addRow(tr("Performer:"),
                      makeErrBadge(m_performerErrBtn, m_albumPerformerEdit));
-    leftForm->addRow(tr("Songwriter:"),
-                     makeErrBadge(m_songwriterErrBtn, m_albumSongwriterEdit));
-    leftForm->addRow(tr("Genre:"), m_albumGenreEdit);
-    leftForm->addRow(QString(), fillBtn);
-    leftForm->addRow(QString(), m_discDetailsBtn);
 
-    rightForm->addRow(tr("Year:"), m_albumYearEdit);
-    rightForm->addRow(tr("Catalog (UPC):"), m_albumCatalogEdit);
-    rightForm->addRow(tr("Disc size:"), m_discSizeCombo);
-    rightForm->addRow(tr("Pre-gap (lead-in):"), pregapRow);
-    rightForm->addRow(tr("Gap between tracks:"), gapRow);
+    // The three burn settings that shape the capacity bar packed onto one line,
+    // each with an inline label, rather than a stacked form of their own.
+    auto *settingsRow = new QHBoxLayout;
+    settingsRow->setContentsMargins(0, 0, 0, 0);
+    settingsRow->setSpacing(8);
+    settingsRow->addWidget(new QLabel(tr("Disc size:")));
+    settingsRow->addWidget(m_discSizeCombo, 1);
+    settingsRow->addSpacing(6);
+    settingsRow->addWidget(new QLabel(tr("Pre-gap:")));
+    settingsRow->addLayout(pregapRow);
+    settingsRow->addSpacing(6);
+    settingsRow->addWidget(new QLabel(tr("Gap:")));
+    settingsRow->addLayout(gapRow);
+    discCol->addLayout(settingsRow);
+
+    // Fill and Disc details share one row instead of stacking as two.
+    auto *discBtnRow = new QHBoxLayout;
+    discBtnRow->setContentsMargins(0, 0, 0, 0);
+    discBtnRow->setSpacing(8);
+    discBtnRow->addWidget(fillBtn, 1);
+    discBtnRow->addWidget(m_discDetailsBtn, 1);
+    discCol->addLayout(discBtnRow);
 
     root->addWidget(discSection);
 
@@ -503,18 +504,15 @@ void MainWindow::buildUi()
                 m_settings.setValue(QStringLiteral("discInfoExpanded"), on);
             });
 
-    // Mark the project dirty on any user edit to the disc info. textEdited
-    // (unlike textChanged) only fires for user input, not programmatic
+    // Mark the project dirty on any user edit to the two panel fields. The rest
+    // of the disc info is edited through the dialog, which marks dirty on accept.
+    // textEdited (unlike textChanged) only fires for user input, not programmatic
     // setText, so loading a project doesn't spuriously flag it as modified.
-    for (QLineEdit *edit :
-         {m_albumTitleEdit, m_albumPerformerEdit, m_albumSongwriterEdit,
-          m_albumGenreEdit, m_albumYearEdit, m_albumCatalogEdit})
+    for (QLineEdit *edit : {m_albumTitleEdit, m_albumPerformerEdit})
         connect(edit, &QLineEdit::textEdited, this, &MainWindow::markDirty);
-    // The mandatory-field badges depend on the disc CD-Text fields (title,
-    // performer, songwriter) as much as on the tracks, so refresh them whenever
-    // one changes.
-    for (QLineEdit *edit :
-         {m_albumTitleEdit, m_albumPerformerEdit, m_albumSongwriterEdit})
+    // The mandatory-field badges depend on the disc title and performer as much
+    // as on the tracks, so refresh them whenever one changes.
+    for (QLineEdit *edit : {m_albumTitleEdit, m_albumPerformerEdit})
         connect(edit, &QLineEdit::textChanged, this,
                 &MainWindow::updateCdTextWarnings);
     connect(m_discSizeCombo, &QComboBox::activated, this,
@@ -1044,6 +1042,10 @@ void MainWindow::openDiscDetails()
     DiscDetailsDialog dialog(gatherMetadataParams(), this);
     if (dialog.exec() != QDialog::Accepted)
         return;
+    m_albumSongwriter = dialog.songwriter();
+    m_albumGenre = dialog.genre();
+    m_albumYear = dialog.year();
+    m_albumCatalog = dialog.catalog();
     m_albumComposer = dialog.composer();
     m_albumArranger = dialog.arranger();
     m_albumMessage = dialog.message();
@@ -1060,14 +1062,14 @@ ExportWorker::Params MainWindow::gatherMetadataParams() const
     p.tracks = m_tracks;
     p.albumTitle = m_albumTitleEdit->text();
     p.albumPerformer = m_albumPerformerEdit->text();
-    p.albumSongwriter = m_albumSongwriterEdit->text();
+    p.albumSongwriter = m_albumSongwriter;
     p.albumComposer = m_albumComposer;
     p.albumArranger = m_albumArranger;
     p.albumMessage = m_albumMessage;
     p.albumDiscId = m_albumDiscId;
-    p.albumGenre = m_albumGenreEdit->text();
-    p.albumYear = m_albumYearEdit->text();
-    p.albumCatalog = m_albumCatalogEdit->text();
+    p.albumGenre = m_albumGenre;
+    p.albumYear = m_albumYear;
+    p.albumCatalog = m_albumCatalog;
     return p;
 }
 
@@ -1078,7 +1080,7 @@ void MainWindow::applyCdTextToProject(const ExportWorker::Params &params)
     // disc values it can have cleared are the non-mandatory ones. Title and
     // Performer are never dropped, so their disc edits are left untouched.
     m_tracks = params.tracks;
-    m_albumSongwriterEdit->setText(params.albumSongwriter);
+    m_albumSongwriter = params.albumSongwriter;
     m_albumComposer = params.albumComposer;
     m_albumArranger = params.albumArranger;
     m_albumMessage = params.albumMessage;
@@ -1101,14 +1103,13 @@ void MainWindow::updateCdTextWarnings()
     // Each panel field flags exactly when the completion prompt would list it.
     m_titleErrBtn->setVisible(attn(cdtext::Pack::Title));
     m_performerErrBtn->setVisible(attn(cdtext::Pack::Performer));
-    m_songwriterErrBtn->setVisible(attn(cdtext::Pack::Songwriter));
 
     // The disc-details fields have no panel row, so roll their warnings up onto
     // the button: ⚠ if any is partial, else • if any merely carries a value.
-    const bool discAttn = attn(cdtext::Pack::Composer)
-        || attn(cdtext::Pack::Arranger) || attn(cdtext::Pack::Message);
-    const bool has = DiscDetailsDialog::hasDetails(
-        m_albumComposer, m_albumArranger, m_albumMessage, m_albumDiscId);
+    const bool discAttn = attn(cdtext::Pack::Songwriter)
+        || attn(cdtext::Pack::Composer) || attn(cdtext::Pack::Arranger)
+        || attn(cdtext::Pack::Message);
+    const bool has = DiscDetailsDialog::hasDetails(p);
     QString label = tr("Disc Details…");
     if (discAttn)
         label += QStringLiteral("  ⚠");
@@ -1203,24 +1204,31 @@ void MainWindow::fillDiscInfoFromTrack()
     const QString fileName = QFileInfo(track.sourcePath).fileName();
 
     // Explicit action: replace each field the source actually carries; a
-    // missing tag leaves whatever is already there rather than blanking it.
-    const std::pair<QLineEdit *, QString> fields[] = {
-        {m_albumTitleEdit, tags.title},
-        {m_albumPerformerEdit, tags.performer},
-        {m_albumSongwriterEdit, tags.songwriter},
-        {m_albumGenreEdit, tags.genre},
-        {m_albumYearEdit, tags.year},
-        {m_albumCatalogEdit, tags.catalog},
-    };
+    // missing tag leaves whatever is already there rather than blanking it. The
+    // two panel edits and the dialog-backed strings are filled the same way.
     bool applied = false;
-    for (const auto &[edit, value] : fields) {
+    auto fillEdit = [&](QLineEdit *edit, const QString &value) {
         if (!value.isEmpty()) {
             edit->setText(value);
             applied = true;
         }
-    }
+    };
+    auto fillStr = [&](QString &dest, const QString &value) {
+        if (!value.isEmpty()) {
+            dest = value;
+            applied = true;
+        }
+    };
+    fillEdit(m_albumTitleEdit, tags.title);
+    fillEdit(m_albumPerformerEdit, tags.performer);
+    fillStr(m_albumSongwriter, tags.songwriter);
+    fillStr(m_albumGenre, tags.genre);
+    fillStr(m_albumYear, tags.year);
+    fillStr(m_albumCatalog, tags.catalog);
     if (applied) {
         markDirty();
+        // Songwriter feeds the Disc details badge, so refresh it.
+        updateCdTextWarnings();
         statusBar()->showMessage(
             tr("Disc info filled from %1.").arg(fileName), 4000);
     } else {
@@ -1340,14 +1348,14 @@ QJsonObject MainWindow::gatherProjectJson() const
     QJsonObject o;
     o[QStringLiteral("album_title")] = m_albumTitleEdit->text();
     o[QStringLiteral("album_performer")] = m_albumPerformerEdit->text();
-    o[QStringLiteral("album_songwriter")] = m_albumSongwriterEdit->text();
+    o[QStringLiteral("album_songwriter")] = m_albumSongwriter;
     o[QStringLiteral("album_composer")] = m_albumComposer;
     o[QStringLiteral("album_arranger")] = m_albumArranger;
     o[QStringLiteral("album_message")] = m_albumMessage;
     o[QStringLiteral("album_disc_id")] = m_albumDiscId;
-    o[QStringLiteral("album_genre")] = m_albumGenreEdit->text();
-    o[QStringLiteral("album_year")] = m_albumYearEdit->text();
-    o[QStringLiteral("album_catalog")] = m_albumCatalogEdit->text();
+    o[QStringLiteral("album_genre")] = m_albumGenre;
+    o[QStringLiteral("album_year")] = m_albumYear;
+    o[QStringLiteral("album_catalog")] = m_albumCatalog;
     o[QStringLiteral("disc_size")] = m_discSizeCombo->currentText();
     o[QStringLiteral("pregap_seconds")] = m_pregapSpin->value();
     o[QStringLiteral("gap_seconds")] = m_gapSpin->value();
@@ -1364,14 +1372,14 @@ void MainWindow::newProject()
         return;
     m_albumTitleEdit->clear();
     m_albumPerformerEdit->clear();
-    m_albumSongwriterEdit->clear();
+    m_albumSongwriter.clear();
     m_albumComposer.clear();
     m_albumArranger.clear();
     m_albumMessage.clear();
     m_albumDiscId.clear();
-    m_albumGenreEdit->clear();
-    m_albumYearEdit->clear();
-    m_albumCatalogEdit->clear();
+    m_albumGenre.clear();
+    m_albumYear.clear();
+    m_albumCatalog.clear();
     m_pregapSpin->setValue(redbook::DEFAULT_PREGAP_SECONDS);
     m_gapSpin->setValue(redbook::DEFAULT_GAP_SECONDS);
     updatePregapWarning();
@@ -1467,18 +1475,15 @@ void MainWindow::openProject(QString path)
         data.value(QStringLiteral("album_title")).toString());
     m_albumPerformerEdit->setText(
         data.value(QStringLiteral("album_performer")).toString());
-    m_albumSongwriterEdit->setText(
-        data.value(QStringLiteral("album_songwriter")).toString());
+    m_albumSongwriter =
+        data.value(QStringLiteral("album_songwriter")).toString();
     m_albumComposer = data.value(QStringLiteral("album_composer")).toString();
     m_albumArranger = data.value(QStringLiteral("album_arranger")).toString();
     m_albumMessage = data.value(QStringLiteral("album_message")).toString();
     m_albumDiscId = data.value(QStringLiteral("album_disc_id")).toString();
-    m_albumGenreEdit->setText(
-        data.value(QStringLiteral("album_genre")).toString());
-    m_albumYearEdit->setText(
-        data.value(QStringLiteral("album_year")).toString());
-    m_albumCatalogEdit->setText(
-        data.value(QStringLiteral("album_catalog")).toString());
+    m_albumGenre = data.value(QStringLiteral("album_genre")).toString();
+    m_albumYear = data.value(QStringLiteral("album_year")).toString();
+    m_albumCatalog = data.value(QStringLiteral("album_catalog")).toString();
     const int sizeIndex = m_discSizeCombo->findText(
         data.value(QStringLiteral("disc_size")).toString());
     if (sizeIndex >= 0)

@@ -114,25 +114,27 @@ private:
     QAction *m_labelAct = nullptr;
     QMenu *m_recentMenu = nullptr;
 
+    // Only the two mandatory CD-Text fields keep a panel row; everything else
+    // disc-wide is edited in the Disc details dialog to keep the panel short.
     QLineEdit *m_albumTitleEdit = nullptr;
     QLineEdit *m_albumPerformerEdit = nullptr;
-    QLineEdit *m_albumSongwriterEdit = nullptr;
-    QLineEdit *m_albumGenreEdit = nullptr;
-    QLineEdit *m_albumYearEdit = nullptr;
-    QLineEdit *m_albumCatalogEdit = nullptr;
-    // Less-common disc CD-Text pack types, edited in the Disc details dialog
-    // instead of on the panel (see DiscDetailsDialog).
+    // Disc-wide values edited only through the Disc details dialog (see
+    // DiscDetailsDialog), kept as plain strings rather than panel widgets.
+    QString m_albumSongwriter;
+    QString m_albumGenre;
+    QString m_albumYear;
+    QString m_albumCatalog;
     QString m_albumComposer;
     QString m_albumArranger;
     QString m_albumMessage;
     QString m_albumDiscId;
     QPushButton *m_discDetailsBtn = nullptr;
-    // Error badges next to the disc CD-Text panel fields, shown when the pack is
-    // partially used (see cdtext::needsAttention). The disc-details fields
-    // (composer/arranger/message) roll their badges up into m_discDetailsBtn.
+    // Error badges next to the mandatory disc CD-Text panel fields, shown when
+    // the pack is partially used (see cdtext::needsAttention). The disc-details
+    // fields (songwriter/composer/arranger/message) roll their badges up into
+    // m_discDetailsBtn.
     QToolButton *m_titleErrBtn = nullptr;
     QToolButton *m_performerErrBtn = nullptr;
-    QToolButton *m_songwriterErrBtn = nullptr;
     QComboBox *m_discSizeCombo = nullptr;
     QDoubleSpinBox *m_pregapSpin = nullptr;
     QDoubleSpinBox *m_gapSpin = nullptr;
