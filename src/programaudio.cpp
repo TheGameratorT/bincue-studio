@@ -389,6 +389,40 @@ QByteArray decode(const QString &sourcePath, QString *error)
     return out;
 }
 
+bool measureTrailingSilence(const QString &sourcePath, double *outSeconds,
+                            QString *error)
+{
+    QString err;
+    const QByteArray pcm = decode(sourcePath, &err);
+    if (!err.isEmpty()) {
+        if (error)
+            *error = err;
+        return false;
+    }
+
+    // Walk the interleaved s16le samples backwards, counting sample-frames whose
+    // peak stays under the threshold, and stop at the first audible frame.
+    // ~32/32767 is about -60 dBFS, low enough to treat encoder dither and a
+    // faded-out tail as silence without swallowing quiet real audio.
+    constexpr int SILENCE_THRESHOLD = 32;
+    const auto *samples = reinterpret_cast<const int16_t *>(pcm.constData());
+    const qint64 totalFrames = pcm.size() / BYTES_PER_SAMPLE_FRAME;
+    qint64 silentFrames = 0;
+    for (qint64 f = totalFrames - 1; f >= 0; --f) {
+        const int left = std::abs(int(samples[f * CHANNELS]));
+        const int right = std::abs(int(samples[f * CHANNELS + 1]));
+        if (left > SILENCE_THRESHOLD || right > SILENCE_THRESHOLD)
+            break;
+        ++silentFrames;
+    }
+
+    if (outSeconds)
+        *outSeconds = double(silentFrames) / SAMPLE_RATE;
+    if (error)
+        error->clear();
+    return true;
+}
+
 // -- Gap fitting --------------------------------------------------------------
 
 QByteArray fitGap(QByteArray pcm, const Track &track, bool isLast,

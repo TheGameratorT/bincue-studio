@@ -908,7 +908,26 @@ void MainWindow::refreshTable()
                         updateCapacity();
                     }
                 });
-        m_table->setCellWidget(row, ColBaked, bakedSpin);
+
+        // A button that measures the source's actual trailing silence and drops
+        // it into the spin box, so the baked-in gap can be filled in from the
+        // audio instead of guessed. Shares the cell with the spin box.
+        auto *detectBtn = new QToolButton;
+        detectBtn->setAutoRaise(true);
+        detectBtn->setIcon(themedIcon("edit-find", QStyle::SP_FileDialogContentsView));
+        detectBtn->setToolTip(
+            tr("Measure this source's trailing silence and set the baked-in gap "
+               "to it."));
+        connect(detectBtn, &QToolButton::clicked, this,
+                [this, row, bakedSpin] { detectBakedGap(row, bakedSpin); });
+
+        auto *bakedCell = new QWidget;
+        auto *bakedLayout = new QHBoxLayout(bakedCell);
+        bakedLayout->setContentsMargins(0, 0, 0, 0);
+        bakedLayout->setSpacing(0);
+        bakedLayout->addWidget(bakedSpin, 1);
+        bakedLayout->addWidget(detectBtn);
+        m_table->setCellWidget(row, ColBaked, bakedCell);
 
         // Per-track actions, kept compact so the table doesn't grow a column per
         // verb: edit the hidden metadata, and re-import the source file.
@@ -1208,6 +1227,42 @@ void MainWindow::reimportTrack(int row)
     refreshTable();
     statusBar()->showMessage(
         tr("Re-imported %1.").arg(QFileInfo(path).fileName()), 4000);
+}
+
+void MainWindow::detectBakedGap(int row, QDoubleSpinBox *spin)
+{
+    if (row < 0 || row >= m_tracks.size())
+        return;
+    const Track &track = m_tracks[row];
+
+    // Decoding the whole file to scan its tail can take a moment on a long
+    // track, so show the wait cursor rather than leave the window looking hung.
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    double seconds = 0.0;
+    QString error;
+    const bool ok =
+        programaudio::measureTrailingSilence(track.sourcePath, &seconds, &error);
+    QApplication::restoreOverrideCursor();
+
+    if (!ok) {
+        QMessageBox::warning(
+            this, tr("Could not read file"),
+            tr("%1 could not be decoded, so the baked-in gap was left "
+               "unchanged:\n\n%2")
+                .arg(QFileInfo(track.sourcePath).fileName(), error));
+        return;
+    }
+
+    // Clamp to the spin box's range and its 0.1s resolution; setValue fires the
+    // valueChanged connection, which commits the value and marks the project
+    // dirty, so nothing else needs doing here.
+    const double clamped = qBound(spin->minimum(), seconds, spin->maximum());
+    spin->setValue(clamped);
+    statusBar()->showMessage(
+        tr("Measured %1s of trailing silence in %2.")
+            .arg(seconds, 0, 'f', 1)
+            .arg(QFileInfo(track.sourcePath).fileName()),
+        4000);
 }
 
 void MainWindow::fillDiscInfoFromTrack()

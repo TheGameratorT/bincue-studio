@@ -22,6 +22,14 @@ QByteArray decode(const QString &sourcePath, QString *error);
 // call). Returns false and sets *error when the duration can't be determined.
 bool probeDuration(const QString &sourcePath, double *outSeconds, QString *error);
 
+// Decode a source file and report how many seconds of trailing near-silence it
+// already carries — the value the per-track "Baked-in Gap" wants. Scans the
+// decoded PCM backwards from the end, counting sample-frames that stay under a
+// low amplitude threshold, and stops at the first audible one. Returns false and
+// sets *error if the file can't be decoded.
+bool measureTrailingSilence(const QString &sourcePath, double *outSeconds,
+                            QString *error);
+
 // Sector-align the decoded PCM, then trim or pad its trailing silence so the
 // gap after the track equals the inter-track gap (0 after the last track).
 // gapFrames is the inter-track gap in CD frames (redbook::secondsToFrames).

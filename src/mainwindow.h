@@ -84,6 +84,10 @@ private:
     void openTrackDetails(int row);
     void openDiscDetails();
     void reimportTrack(int row);
+    // Measure the trailing silence in a track's source file and write it into
+    // that row's baked-in gap. Updates `spin` (whose valueChanged commits the
+    // value); shows a warning if the source can't be decoded.
+    void detectBakedGap(int row, QDoubleSpinBox *spin);
     void fillDiscInfoFromTrack();
     // A Params snapshot of the current disc + track metadata (no output paths),
     // used both to gather for a burn/export and to feed the shared cdtext model
