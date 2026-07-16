@@ -16,14 +16,18 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
 # Shared "run a tool on a local or remote (SSH) host" library, shared with
 # disc-damage-viewer. Provides hostkit::hostkit (HostSession, HostProcess,
-# TerminalView) used by burning. Dev builds vendor the sibling checkout;
-# packaged builds (the AUR PKGBUILD) link the installed libhostkit instead.
+# TerminalView) used by burning. It is vendored as a static library: dev builds
+# use the sibling checkout, and the AUR PKGBUILD points BINCUE_HOSTKIT_SOURCE_DIR
+# at the hostkit tarball it extracts alongside, so the app carries hostkit
+# statically with no separate runtime package. Set BINCUE_USE_SYSTEM_HOSTKIT=ON
+# to instead link an installed shared libhostkit.
 option(BINCUE_USE_SYSTEM_HOSTKIT
-    "Link the installed hostkit package instead of the sibling source directory" OFF)
+    "Link the installed hostkit package instead of vendoring the source" OFF)
+set(BINCUE_HOSTKIT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hostkit"
+    CACHE PATH "hostkit source tree to vendor (static link) when not using the system package")
 if(NOT BINCUE_USE_SYSTEM_HOSTKIT
-        AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../hostkit/CMakeLists.txt)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../hostkit
-                     ${CMAKE_BINARY_DIR}/hostkit)
+        AND EXISTS ${BINCUE_HOSTKIT_SOURCE_DIR}/CMakeLists.txt)
+    add_subdirectory(${BINCUE_HOSTKIT_SOURCE_DIR} ${CMAKE_BINARY_DIR}/hostkit)
 else()
     find_package(hostkit 1 CONFIG REQUIRED)
 endif()
