@@ -45,6 +45,11 @@ void BurnController::handleLine(const QString &line)
     }
     if (line.contains(QStringLiteral("Simulation"), Qt::CaseInsensitive))
         m_simulated = true;
+    // cdrdao on Windows can print "Writing failed." and still exit 0 on a
+    // device-level error (e.g. an unusable write driver), so flag the failure
+    // from its own output rather than trusting the exit code alone.
+    if (line.contains(QStringLiteral("Writing failed"), Qt::CaseInsensitive))
+        markFailed();
 }
 
 QString BurnController::successSummary() const

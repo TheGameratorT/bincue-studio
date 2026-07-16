@@ -154,9 +154,24 @@ void BurnJob::prepareRemoteThenBurn()
     const QString remoteBin = m_remoteDir + QStringLiteral("/image.bin");
     const QString remoteToc = m_remoteDir + QStringLiteral("/burn.toc");
 
+    // The FILE the TOC points cdrdao at needs a form cdrdao itself accepts as
+    // absolute, which is not the same as the Win32 path we upload to. cdrdao's
+    // bundled build resolves a TOC's FILE with a POSIX rule: a path not
+    // starting with "/" is taken as relative to its working directory (the SSH
+    // login home), so a "C:/…" FILE gets mis-joined onto it. Its filesystem
+    // maps "/" to the current drive's root — it renders C:\Users\me as
+    // /Users/me — so hand it the drive-stripped, "/"-rooted form. The temp dir
+    // lives on the system drive, the same drive cdrdao runs from. (Posix hosts
+    // already give an absolute "/…" path, so this leaves them untouched.)
+    QString tocBinPath = remoteBin;
+    if (m_session->hostOs() == hostkit::HostOs::Windows
+        && tocBinPath.size() >= 2 && tocBinPath.at(0).isLetter()
+        && tocBinPath.at(1) == QLatin1Char(':'))
+        tocBinPath = tocBinPath.mid(2);
+
     // Point the TOC's FILE at the uploaded BIN's remote path.
     QString err2;
-    const QString localBurnToc = writeBurnToc(remoteBin, &err2);
+    const QString localBurnToc = writeBurnToc(tocBinPath, &err2);
     if (localBurnToc.isEmpty()) {
         finishWith(false, err2);
         return;
