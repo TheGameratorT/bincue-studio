@@ -102,6 +102,44 @@ test run), eject-when-done, and free-form extra `cdrdao` options.
 |---|---|
 | ![Burn to Disc dialog](gallery/burn_window_ssh.png) | ![Burning progress](gallery/burning_window_ssh.png) |
 
+### Troubleshooting the burn (drive quirks)
+
+BinCue Studio hands `cdrdao` a TOC with a `CD_TEXT` block and lets it drive the
+recorder, so the image is rarely the thing at fault. When a burned disc *looks*
+wrong, the usual culprit is a **drive quirk on read-back** — the same disc often
+behaves differently in another drive. A couple of these look exactly like
+software bugs and aren't:
+
+- **CD-Text is on the disc, but a given drive won't read it back.** Writing
+  CD-Text and *reading* it back are two separate drive capabilities, and
+  read-back is media-dependent on top of that: a drive can write a perfectly good
+  CD-Text lead-in to a CD-R and then be **unable to read that same disc's CD-Text
+  back**, while reading pressed discs and CD-RW just fine. This really happens —
+  in testing, a *TSSTcorp CDDVDW SH-222BB* burned a CD-R with correct CD-Text but
+  reported none when reading it back (via both `cdrdao` and `cd-info`); the
+  **identical disc showed full CD-Text in a different drive** (an *HL-DT-ST
+  DVDRAM GSA-T50N*). The data was there the whole time. So don't conclude the
+  burn failed from a single drive's read: `cdrdao read-toc` / `read-cd` often
+  can't see lead-in CD-Text at all, `cd-info /dev/sr0` uses the proper command
+  but is still at the mercy of the drive, and the real arbiter is **a second
+  drive and/or a CD-Text-capable player**. Verify there before re-burning.
+
+- **The write speed you asked for isn't always the one you get.** `--speed` is a
+  *request*. The drive negotiates the real speed against the media's rated speed
+  (the CD-R's ATIP groove, the CD-RW's rating) and its own firmware's list of
+  supported speeds — so it may clamp **down** (ask 16×, a 10× CD-RW burns at 10×)
+  or bump **up** to a floor (ask 8×, a CD-R burns at 16× because that media has a
+  *minimum* supported write speed and the drive won't go below it — many SATA
+  burners bottom out at 16×). If `cd-info` reports `Can set drive speed : No`, the
+  drive doesn't implement the MMC `SET CD SPEED` command and will ignore the field
+  entirely. It's a cosmetic mismatch between the log and your
+  request, not a bincue bug.
+
+The through-line: if audio and ISRC verify but CD-Text (or another lead-in
+feature) appears to be missing, suspect the **reader/media combination** first —
+confirm what's actually on the disc with `cd-info` and a second drive before
+blaming the burn or the image.
+
 ## The label editor (cdlabel)
 
 cdlabel builds a printable disc label by **stacking independent layers** — there
