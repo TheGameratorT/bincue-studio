@@ -570,6 +570,24 @@ void LabelDialog::openProject()
         return;
     }
     adoptProject(project, path);
+    warnMissingFonts(project.design);
+}
+
+// The project's design may name a title/track font this system doesn't have
+// installed; the renderer would then silently fall back to a substitute. Flag
+// that on open so the user knows the label won't look as saved.
+void LabelDialog::warnMissingFonts(const LabelConfig &cfg)
+{
+    const QStringList missing = missingConfigFonts(cfg);
+    if (missing.isEmpty())
+        return;
+    QMessageBox::warning(
+        this, tr("Fonts not installed"),
+        tr("This project uses %n font(s) that aren't installed, so a "
+           "substitute is shown instead:\n\n%1\n\nInstall the font(s) and "
+           "reopen, or choose another font and save to update the project.",
+           nullptr, int(missing.size()))
+            .arg(missing.join(QStringLiteral("\n"))));
 }
 
 // Replace the whole working state (content + design) with a loaded project and

@@ -37,3 +37,9 @@ void drawLabel(QPainter &painter, double side, const RenderInput &in,
 // Render a print-ready label (transparent background) to a square image.
 QImage renderLabelImage(const RenderInput &in, const LabelConfig &cfg,
                         int sidePx);
+
+// The font families named in `cfg` (title and track) that aren't installed on
+// this system, so the renderer would silently substitute a fallback. Empty
+// families (which mean "use the built-in default") are ignored. Deduped, in the
+// order title-then-track. Used to warn when a project is opened.
+QStringList missingConfigFonts(const LabelConfig &cfg);

@@ -30,11 +30,13 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -76,6 +78,18 @@ LabelDialog::LabelDialog(const LabelProject &project,
     // before the controls sync so its rows enable correctly.
     loadBgFromConfig();
     syncControlsFromConfig();
+}
+
+void LabelDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // Warn about the initial project's missing fonts on first show, deferred so
+    // the editor is painted behind the message box. Projects opened later warn
+    // from openProject() instead.
+    if (!m_fontWarningShown) {
+        m_fontWarningShown = true;
+        QTimer::singleShot(0, this, [this] { warnMissingFonts(m_cfg); });
+    }
 }
 
 void LabelDialog::touch()

@@ -8,6 +8,7 @@
 #include "covers.h"
 
 #include <QCryptographicHash>
+#include <QFontInfo>
 #include <QFontMetricsF>
 #include <QPainter>
 #include <QPen>
@@ -869,6 +870,23 @@ QList<QImage> orderedCovers(const QList<QImage> &covers, const LabelConfig &cfg)
         if (i >= 0 && i < covers.size())
             picked.append(covers[i]);
     return picked;
+}
+
+QStringList missingConfigFonts(const LabelConfig &cfg)
+{
+    QStringList missing;
+    // makeFont() builds a QFont from each family verbatim, so mirror that here:
+    // if Qt has to fall back, QFontInfo reports the family it actually resolved
+    // to, which differs from the one the project asked for.
+    for (const QString &family : {cfg.titleFont, cfg.trackFont}) {
+        if (family.isEmpty())   // empty means "use the built-in default"
+            continue;
+        const QFontInfo info{QFont(family)};
+        if (info.family().compare(family, Qt::CaseInsensitive) != 0
+            && !missing.contains(family, Qt::CaseInsensitive))
+            missing.append(family);
+    }
+    return missing;
 }
 
 void drawLabel(QPainter &painter, double side, const RenderInput &in,

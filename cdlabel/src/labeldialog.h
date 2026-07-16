@@ -47,6 +47,9 @@ public:
 
     void applyConfig(const LabelConfig &cfg);   // e.g. a preset given on the CLI
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
     // -- construction -----------------------------------------------------
     QWidget *buildContentPanel();   // title override + per-track list
@@ -109,6 +112,9 @@ private:
     void saveProjectAs();             // always prompt
     bool writeProjectTo(const QString &path);
     void adoptProject(const LabelProject &project, const QString &path);
+    // Warn (once, non-fatally) if the design names fonts this system lacks, so
+    // the silent fallback substitution doesn't go unnoticed.
+    void warnMissingFonts(const LabelConfig &cfg);
 
     // -- content editing (title override + per-track list) -------------------
     void pushContentToPreview();      // derive titles/covers -> preview + repaint
@@ -131,6 +137,7 @@ private:
     LabelConfig m_cfg;
     QImage m_bgImage;
     bool m_loading = false;   // guards handlers during bulk control updates
+    bool m_fontWarningShown = false;   // gate the initial-project font warning
 
     PreviewWidget *m_preview = nullptr;
 
