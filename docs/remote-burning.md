@@ -66,27 +66,23 @@ burn ends, so the host needs free space for one disc image (up to ~800 MB).
 
 ## Windows host
 
-> ⚠️ **Untested, unsupported, and frankly a mistake.** Let me be blunt: I
-> hate developing for Windows. Wiring up Windows as a burning *host* was a
-> miserable slog that ate a disproportionate chunk of this project's
-> development time and gave almost nothing back. It has **never** been verified
-> end-to-end on real hardware, and the platform fights you the whole way — for
-> example, there is no reliable way to interrupt cdrdao, because Windows'
-> ConPTY won't dependably deliver a ^C to a process that isn't sitting there
-> reading its console. So on Windows, **Stop just hard-kills the process.** A
-> burn can't be resumed anyway, so a cancelled disc is ruined no matter how
-> politely you ask cdrdao to quit — there is no point pretending otherwise.
->
-> You don't have to take my word for any of this. Just scroll up and compare:
-> the **Linux host** section is a handful of one-line commands from packages
-> your distro already ships. The Windows section below is a self-elevating
+> ⚠️ **Prefer a Linux host if you can.** The Windows host path is tested and
+> works, but it is more setup and has rougher edges than Linux. Compare the two
+> sections: the **Linux host** above is a handful of one-line commands from
+> packages your distro already ships, while Windows needs a self-elevating
 > PowerShell script, a shared-vs-per-user key-file quirk, an `icacls`
-> permission dance, and a pile of caveats — for the *same* end result. The
-> difference in length and pain is the whole argument, and it makes itself.
+> permission dance, and a few caveats — for the *same* end result. One example
+> of the rough edges: there is no reliable way to interrupt cdrdao, because
+> Windows' ConPTY won't dependably deliver a ^C to a process that isn't sitting
+> there reading its console, so on Windows **Stop just hard-kills the
+> process.** A burn can't be resumed anyway, so a cancelled disc is ruined
+> either way.
 >
-> If you have any choice at all, **burn from a Linux host** (above). That is the
-> path that actually works and actually gets tested. Everything below is
-> best-effort, offered without warranty, and may simply not work.
+> The one reason to reach for a Windows host is a drive that has no working
+> Linux driver. Even then, weigh it carefully: cdrdao's support for a drive
+> that Linux can't talk to is unlikely to fare much better, so a Windows host
+> is no guarantee the burn will work. When you have any choice at all, **burn
+> from a Linux host** (above) — that is the smoother, better-trodden path.
 
 The bundled setup script does all of the host-side work; the manual steps
 underneath spell out exactly what it does for anyone who prefers to run them by
