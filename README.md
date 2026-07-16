@@ -98,9 +98,11 @@ locally, uploaded if remote, and written with `cdrdao` (the exact command is
 shown before you commit). Options include write speed, **Simulate only** (a laser-off
 test run), eject-when-done, and free-form extra `cdrdao` options.
 
-| Choosing the drive & options | Live burn log |
-|---|---|
-| ![Burn to Disc dialog](gallery/burn_window_ssh.png) | ![Burning progress](gallery/burning_window_ssh.png) |
+![Burn to Disc dialog](gallery/burn_window_ssh.png)
+
+The live burn log, over SSH:
+
+![Burning progress](gallery/burning_window_ssh_live.gif)
 
 ### Troubleshooting the burn (drive quirks)
 
