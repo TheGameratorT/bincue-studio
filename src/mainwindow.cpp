@@ -1586,7 +1586,11 @@ void MainWindow::openProject(QString path)
     m_tracks.clear();
     for (const QJsonValue &v :
          data.value(QStringLiteral("tracks")).toArray()) {
-        const Track track = Track::fromJson(v.toObject());
+        Track track = Track::fromJson(v.toObject());
+        if (!track.sourcePath.isEmpty()
+            && QFileInfo(track.sourcePath).isRelative())
+            track.sourcePath =
+                QFileInfo(path).absoluteDir().filePath(track.sourcePath);
         if (!QFileInfo(track.sourcePath).isFile())
             missing.append(track.sourcePath);
         m_tracks.append(track);

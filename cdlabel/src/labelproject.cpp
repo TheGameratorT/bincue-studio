@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -141,6 +142,9 @@ bool loadLabelProject(const QString &path, LabelProject &out, QString &error)
         LabelTrack t;
         t.name = to.value(QStringLiteral("name")).toString();
         t.sourcePath = to.value(QStringLiteral("source_path")).toString();
+        if (!t.sourcePath.isEmpty() && QFileInfo(t.sourcePath).isRelative())
+            t.sourcePath =
+                QFileInfo(path).absoluteDir().filePath(t.sourcePath);
         t.displayName =
             to.value(QStringLiteral("display_name")).toString(t.name);
         if (t.displayName.isEmpty())

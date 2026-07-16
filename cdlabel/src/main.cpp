@@ -22,7 +22,9 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QIcon>
 #include <QImage>
 #include <QJsonArray>
@@ -69,6 +71,9 @@ bool loadBincueContent(const QString &path, LabelProject &out, QString &error)
         t.name = track.value(QStringLiteral("title")).toString();
         t.displayName = t.name;
         t.sourcePath = track.value(QStringLiteral("source_path")).toString();
+        if (!t.sourcePath.isEmpty() && QFileInfo(t.sourcePath).isRelative())
+            t.sourcePath =
+                QFileInfo(path).absoluteDir().filePath(t.sourcePath);
         out.tracks.append(t);
     }
     extractProjectCovers(out.tracks);
